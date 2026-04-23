@@ -1,0 +1,11 @@
+@JsnFinances_HostAddress = http://localhost:5004
+
+GET {{JsnFinances_HostAddress}}/todos/
+Accept: application/json
+
+###
+
+GET {{JsnFinances_HostAddress}}/todos/1
+Accept: application/json
+
+###

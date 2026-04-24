@@ -77,9 +77,9 @@ public sealed partial class JsnFinancesDb
         {
             insert.CommandText = """
                 insert into public.user_subscriptions
-                  (id_usuario, status, provider)
+                  (id_usuario, status, provider, trial_started_at, trial_ends_at)
                 values
-                  (@userId, 'expired', 'mercadopago')
+                  (@userId, 'trialing', 'manual', timezone('utc', now()), timezone('utc', now()) + interval '3 days')
                 on conflict (id_usuario) do nothing
                 """;
             Add(insert, "userId", userId);
@@ -385,44 +385,68 @@ public sealed partial class JsnFinancesDb
         return BuildBillingStatus(status, trialStartedAt, trialEndsAt, currentPeriodEnd, planCode, providerSubscriptionId, initPoint);
     }
 
-    private static BillingStatusDto BuildBillingStatus(
-        string status,
-        DateTimeOffset? trialStartedAt,
-        DateTimeOffset? trialEndsAt,
-        DateTimeOffset? currentPeriodEnd,
-        string? planCode,
-        string? providerSubscriptionId,
-        string? initPoint)
+   private static BillingStatusDto BuildBillingStatus(
+    string status,
+    DateTimeOffset? trialStartedAt,
+    DateTimeOffset? trialEndsAt,
+    DateTimeOffset? currentPeriodEnd,
+    string? planCode,
+    string? providerSubscriptionId,
+    string? initPoint)
+{
+    var normalized = NormalizeProviderStatus(status);
+    var now = DateTimeOffset.UtcNow;
+
+    var trialStillValid =
+        normalized == "trialing"
+        && trialEndsAt.HasValue
+        && now <= trialEndsAt.Value;
+
+    var activeStillValid =
+        normalized == "active"
+        && currentPeriodEnd.HasValue
+        && now <= currentPeriodEnd.Value;
+
+    var hasAccess = trialStillValid || activeStillValid;
+
+    var endDate = activeStillValid
+        ? currentPeriodEnd
+        : trialStillValid
+            ? trialEndsAt
+            : currentPeriodEnd ?? trialEndsAt;
+
+    var daysLeft = hasAccess && endDate.HasValue
+        ? Math.Max(0, (int)Math.Ceiling((endDate.Value - now).TotalDays))
+        : 0;
+
+    var finalStatus =
+        activeStillValid ? "active" :
+        trialStillValid ? "trialing" :
+        normalized is "active" or "trialing" ? "expired" :
+        normalized;
+
+    var message = finalStatus switch
     {
-        var normalized = NormalizeProviderStatus(status);
-        var now = DateTimeOffset.UtcNow;
-        var activeStillValid = normalized == "active" && currentPeriodEnd.HasValue && now <= currentPeriodEnd.Value;
-        var daysLeft = activeStillValid
-            ? Math.Max(0, (int)Math.Ceiling((currentPeriodEnd!.Value - now).TotalDays))
-            : 0;
+        "active" => "Acesso premium ativo.",
+        "trialing" => "Teste grátis ativo.",
+        "pending" => "Pagamento PIX pendente.",
+        "canceled" => "Acesso premium cancelado.",
+        _ => "Escolha um plano e pague via PIX para liberar o acesso premium."
+    };
 
-        var message = normalized switch
-        {
-            "active" when activeStillValid => "Acesso premium ativo.",
-            "active" => "Seu acesso premium venceu. Gere um novo PIX para renovar.",
-            "pending" => "Pagamento PIX pendente.",
-            "canceled" => "Acesso premium cancelado.",
-            _ => "Escolha um plano e pague via PIX para liberar o acesso premium."
-        };
-
-        return new BillingStatusDto(
-            activeStillValid ? "active" : normalized == "active" ? "expired" : normalized,
-            activeStillValid,
-            false,
-            trialStartedAt,
-            trialEndsAt,
-            currentPeriodEnd,
-            daysLeft,
-            planCode,
-            providerSubscriptionId,
-            initPoint,
-            message);
-    }
+    return new BillingStatusDto(
+        finalStatus,
+        hasAccess,
+        trialStillValid,
+        trialStartedAt,
+        trialEndsAt,
+        currentPeriodEnd,
+        daysLeft,
+        planCode,
+        providerSubscriptionId,
+        initPoint,
+        message);
+}
 
     private static PixChargeDto ReadPixCharge(NpgsqlDataReader reader)
         => new(
@@ -450,7 +474,7 @@ public sealed partial class JsnFinancesDb
         return normalized switch
         {
             "authorized" or "active" or "approved" => "active",
-            "trialing" => "expired",
+            "trialing" => "trialing",
             "pending" or "pending_payment" or "in_process" => "pending",
             "paused" => "paused",
             "cancelled" or "canceled" or "cancel" => "canceled",

@@ -16,38 +16,34 @@ public sealed class MercadoPagoClient
         _configuration = configuration;
     }
 
-    public async Task<MercadoPagoCreateSubscriptionResult> CreateAuthorizedSubscriptionAsync(
+    public async Task<MercadoPagoCreatePixPaymentResult> CreatePixPaymentAsync(
         BillingPlanDto plan,
         Guid userId,
-        string payerEmail,
-        string cardTokenId,
-        string? meliSessionId)
+        Guid internalChargeId,
+        string payerEmail)
     {
         EnsureConfigured();
 
-        var backUrl = _configuration["Billing:CheckoutReturnUrl"];
-        if (string.IsNullOrWhiteSpace(backUrl))
-        {
-            throw new InvalidOperationException("Configure Billing:CheckoutReturnUrl com a URL do frontend para retorno do Mercado Pago.");
-        }
-
         var notificationUrl = _configuration["Billing:MercadoPago:NotificationUrl"];
+        var expirationMinutes = int.TryParse(_configuration["Billing:PixExpirationMinutes"], out var configuredMinutes)
+            ? Math.Clamp(configuredMinutes, 10, 1440)
+            : 60;
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(expirationMinutes);
 
         var payload = new Dictionary<string, object?>
         {
-            ["reason"] = $"JSN Finances - Plano {plan.Nome}",
-            ["external_reference"] = userId.ToString(),
-            ["payer_email"] = payerEmail,
-            ["card_token_id"] = cardTokenId,
-            ["auto_recurring"] = new
+            ["transaction_amount"] = plan.Valor,
+            ["description"] = $"JSN Finances - {plan.Nome}",
+            ["payment_method_id"] = "pix",
+            ["external_reference"] = internalChargeId.ToString(),
+            ["date_of_expiration"] = expiresAt.ToString("yyyy-MM-dd'T'HH:mm:ss.fffK"),
+            ["payer"] = new { email = payerEmail },
+            ["metadata"] = new Dictionary<string, object?>
             {
-                frequency = plan.Frequency,
-                frequency_type = plan.FrequencyType,
-                transaction_amount = plan.Valor,
-                currency_id = plan.Moeda
-            },
-            ["back_url"] = backUrl,
-            ["status"] = "authorized"
+                ["user_id"] = userId.ToString(),
+                ["plan_code"] = plan.Code,
+                ["internal_charge_id"] = internalChargeId.ToString()
+            }
         };
 
         if (!string.IsNullOrWhiteSpace(notificationUrl))
@@ -55,69 +51,50 @@ public sealed class MercadoPagoClient
             payload["notification_url"] = notificationUrl;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "preapproval")
+        using var request = new HttpRequestMessage(HttpMethod.Post, "v1/payments")
         {
             Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
-
+        request.Headers.TryAddWithoutValidation("X-Idempotency-Key", internalChargeId.ToString());
         AddAuthorization(request);
-        AddOptionalHeaders(request, meliSessionId);
 
         using var response = await _httpClient.SendAsync(request);
         var json = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Mercado Pago retornou erro ao criar assinatura: {(int)response.StatusCode} - {json}");
+            throw new InvalidOperationException($"Mercado Pago retornou erro ao criar PIX: {(int)response.StatusCode} - {json}");
         }
 
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         var id = GetString(root, "id");
-        var initPoint = GetString(root, "init_point") ?? GetString(root, "sandbox_init_point");
-        var status = GetString(root, "status") ?? "pending";
+        var status = NormalizePaymentStatus(GetString(root, "status"));
+        var externalReference = GetString(root, "external_reference") ?? internalChargeId.ToString();
+        var dateOfExpiration = GetDateTimeOffset(root, "date_of_expiration") ?? expiresAt;
+        var paidAt = GetDateTimeOffset(root, "date_approved");
+        var transactionData = root.TryGetProperty("point_of_interaction", out var poi)
+            && poi.TryGetProperty("transaction_data", out var data)
+                ? data
+                : default;
+        var qrCode = transactionData.ValueKind == JsonValueKind.Object ? GetString(transactionData, "qr_code") : null;
+        var qrCodeBase64 = transactionData.ValueKind == JsonValueKind.Object ? GetString(transactionData, "qr_code_base64") : null;
+        var ticketUrl = transactionData.ValueKind == JsonValueKind.Object ? GetString(transactionData, "ticket_url") : null;
 
         if (string.IsNullOrWhiteSpace(id))
         {
-            throw new InvalidOperationException("Mercado Pago não retornou o id da assinatura.");
+            throw new InvalidOperationException("Mercado Pago não retornou o id da cobrança PIX.");
         }
 
-        return new MercadoPagoCreateSubscriptionResult(id, initPoint, status, json);
-    }
-
-    public async Task<MercadoPagoSubscriptionResult> GetSubscriptionAsync(string providerSubscriptionId)
-    {
-        EnsureConfigured();
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"preapproval/{Uri.EscapeDataString(providerSubscriptionId)}");
-        AddAuthorization(request);
-
-        using var response = await _httpClient.SendAsync(request);
-        var json = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Mercado Pago retornou erro ao consultar assinatura: {(int)response.StatusCode} - {json}");
-        }
-
-        using var document = JsonDocument.Parse(json);
-        var root = document.RootElement;
-        var id = GetString(root, "id") ?? providerSubscriptionId;
-        var status = GetString(root, "status") ?? "pending";
-        var initPoint = GetString(root, "init_point") ?? GetString(root, "sandbox_init_point");
-        var externalReference = GetString(root, "external_reference");
-        var nextPaymentDate = GetDateTimeOffset(root, "next_payment_date");
-        var amount = root.TryGetProperty("auto_recurring", out var recurring)
-            ? GetDecimal(recurring, "transaction_amount")
-            : null;
-
-        return new MercadoPagoSubscriptionResult(
+        return new MercadoPagoCreatePixPaymentResult(
             id,
             status,
-            initPoint,
             externalReference,
-            nextPaymentDate,
-            amount,
+            qrCode,
+            qrCodeBase64,
+            ticketUrl,
+            dateOfExpiration,
+            paidAt,
             json);
     }
 
@@ -139,64 +116,26 @@ public sealed class MercadoPagoClient
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         var id = GetString(root, "id") ?? providerPaymentId;
-        var status = GetString(root, "status");
+        var status = NormalizePaymentStatus(GetString(root, "status"));
         var externalReference = GetString(root, "external_reference");
         var amount = GetDecimal(root, "transaction_amount") ?? GetDecimal(root, "total_paid_amount");
         var currency = GetString(root, "currency_id");
         var paidAt = GetDateTimeOffset(root, "date_approved") ?? GetDateTimeOffset(root, "date_created");
-        var preapprovalId = GetString(root, "preapproval_id")
-            ?? ReadNestedString(root, "metadata", "preapproval_id")
-            ?? ReadNestedString(root, "metadata", "provider_subscription_id");
 
         return new MercadoPagoPaymentResult(
             id,
             status,
             externalReference,
-            preapprovalId,
             amount,
             currency,
             paidAt,
             json);
     }
 
-    public async Task CancelSubscriptionAsync(string providerSubscriptionId)
-    {
-        EnsureConfigured();
-
-        var payload = new { status = "cancelled" };
-        using var request = new HttpRequestMessage(HttpMethod.Put, $"preapproval/{Uri.EscapeDataString(providerSubscriptionId)}")
-        {
-            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
-        };
-        AddAuthorization(request);
-
-        using var response = await _httpClient.SendAsync(request);
-        var json = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Mercado Pago retornou erro ao cancelar assinatura: {(int)response.StatusCode} - {json}");
-        }
-    }
-
     private void AddAuthorization(HttpRequestMessage request)
     {
         var token = _configuration["Billing:MercadoPago:AccessToken"];
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-    }
-
-    private void AddOptionalHeaders(HttpRequestMessage request, string? meliSessionId)
-    {
-        var xScope = _configuration["Billing:MercadoPago:XScope"];
-        if (!string.IsNullOrWhiteSpace(xScope))
-        {
-            request.Headers.TryAddWithoutValidation("X-scope", xScope);
-        }
-
-        if (!string.IsNullOrWhiteSpace(meliSessionId))
-        {
-            request.Headers.TryAddWithoutValidation("X-meli-session-id", meliSessionId);
-        }
     }
 
     private void EnsureConfigured()
@@ -208,14 +147,8 @@ public sealed class MercadoPagoClient
         }
     }
 
-    private static string? ReadNestedString(JsonElement root, string objectPropertyName, string nestedPropertyName)
-    {
-        if (!root.TryGetProperty(objectPropertyName, out var nested) || nested.ValueKind != JsonValueKind.Object) return null;
-        return GetString(nested, nestedPropertyName);
-    }
-
     private static string? GetString(JsonElement root, string propertyName)
-        => root.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
+        => root.ValueKind == JsonValueKind.Object && root.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.ToString()
             : null;
 
@@ -233,28 +166,37 @@ public sealed class MercadoPagoClient
         if (!root.TryGetProperty(propertyName, out var property) || property.ValueKind == JsonValueKind.Null) return null;
         return DateTimeOffset.TryParse(property.ToString(), out var value) ? value : null;
     }
+
+    private static string NormalizePaymentStatus(string? status)
+    {
+        var normalized = (status ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "approved" or "authorized" or "active" => "approved",
+            "pending" or "pending_payment" or "in_process" => "pending",
+            "cancelled" or "canceled" or "cancel" => "canceled",
+            "rejected" => "rejected",
+            "expired" => "expired",
+            _ => string.IsNullOrWhiteSpace(normalized) ? "pending" : normalized
+        };
+    }
 }
 
-public sealed record MercadoPagoCreateSubscriptionResult(
-    string Id,
-    string? InitPoint,
-    string Status,
-    string RawPayload);
-
-public sealed record MercadoPagoSubscriptionResult(
+public sealed record MercadoPagoCreatePixPaymentResult(
     string Id,
     string Status,
-    string? InitPoint,
-    string? ExternalReference,
-    DateTimeOffset? NextPaymentDate,
-    decimal? Amount,
+    string ExternalReference,
+    string? QrCode,
+    string? QrCodeBase64,
+    string? TicketUrl,
+    DateTimeOffset? ExpiresAt,
+    DateTimeOffset? PaidAt,
     string RawPayload);
 
 public sealed record MercadoPagoPaymentResult(
     string Id,
     string? Status,
     string? ExternalReference,
-    string? ProviderSubscriptionId,
     decimal? Amount,
     string? Currency,
     DateTimeOffset? PaidAt,

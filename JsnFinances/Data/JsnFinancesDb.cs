@@ -1379,11 +1379,32 @@ public sealed partial class JsnFinancesDb
     }
 
     private static void Add(NpgsqlCommand command, string name, object? value, NpgsqlDbType? dbType = null)
-    {
-        var parameter = dbType.HasValue
-            ? command.Parameters.Add(name, dbType.Value)
-            : command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+{
+    var normalizedValue = NormalizeDbValue(value);
 
-        parameter.Value = value ?? DBNull.Value;
+    var parameter = dbType.HasValue
+        ? command.Parameters.Add(name, dbType.Value)
+        : command.Parameters.AddWithValue(name, normalizedValue ?? DBNull.Value);
+
+    parameter.Value = normalizedValue ?? DBNull.Value;
+}
+
+private static object? NormalizeDbValue(object? value)
+{
+    if (value is null)
+        return null;
+
+    if (value is DateTimeOffset dateTimeOffset)
+        return dateTimeOffset.ToUniversalTime();
+
+    if (value is DateTime dateTime)
+    {
+        if (dateTime.Kind == DateTimeKind.Utc)
+            return dateTime;
+
+        return DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
     }
+
+    return value;
+}
 }

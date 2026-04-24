@@ -57,6 +57,16 @@ app.UseCors("JsnFinancesFront");
 
 app.Use(async (context, next) =>
 {
+    await next();
+
+    if (context.Response.StatusCode >= 500)
+    {
+        Console.WriteLine($"HTTP {context.Response.StatusCode} em {context.Request.Method} {context.Request.Path}");
+    }
+});
+
+app.Use(async (context, next) =>
+{
     try
     {
         await next();
@@ -83,6 +93,10 @@ app.Use(async (context, next) =>
     }
     catch (Exception ex)
     {
+        Console.WriteLine("=== EXCEPTION START ===");
+        Console.WriteLine(ex.ToString());
+        Console.WriteLine("=== EXCEPTION END ===");
+
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         await context.Response.WriteAsJsonAsync(new
         {

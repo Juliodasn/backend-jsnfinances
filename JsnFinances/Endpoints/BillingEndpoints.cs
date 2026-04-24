@@ -16,16 +16,27 @@ public static class BillingEndpoints
         api.MapGet("/status", async (HttpContext ctx, IUserContext userContext, BillingService billing) =>
             Results.Ok(await billing.GetStatusAsync(userContext.GetUserId(ctx))));
 
-        api.MapPost("/checkout", async (
+        api.MapPost("/pix", async (
             HttpContext ctx,
             IUserContext userContext,
             BillingService billing,
-            CreateCheckoutRequest request) =>
+            CreatePixChargeRequest request) =>
         {
             var userId = userContext.GetUserId(ctx);
             var email = userContext.GetUserEmail(ctx);
-            return Results.Ok(await billing.CreateCheckoutAsync(userId, email, request));
+            return Results.Ok(await billing.CreatePixChargeAsync(userId, email, request));
         });
+
+        api.MapGet("/pix/{id:guid}", async (
+            HttpContext ctx,
+            IUserContext userContext,
+            BillingService billing,
+            Guid id) =>
+        {
+            var userId = userContext.GetUserId(ctx);
+            return Results.Ok(await billing.GetPixChargeAsync(userId, id));
+        });
+
 
         api.MapPost("/sync", async (HttpContext ctx, IUserContext userContext, BillingService billing) =>
             Results.Ok(await billing.SyncUserSubscriptionAsync(userContext.GetUserId(ctx))));

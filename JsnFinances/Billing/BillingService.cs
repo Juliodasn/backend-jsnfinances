@@ -26,72 +26,43 @@ public sealed class BillingService
     public Task<BillingStatusDto> GetStatusAsync(Guid userId)
         => _db.GetOrCreateBillingStatusAsync(userId);
 
-    public async Task<CreateCheckoutResponse> CreateCheckoutAsync(Guid userId, string? userEmail, CreateCheckoutRequest request)
+    public async Task<PixChargeDto> CreatePixChargeAsync(Guid userId, string? userEmail, CreatePixChargeRequest request)
     {
-        var plan = await _db.GetBillingPlanAsync(request.PlanCode)
-            ?? throw new ArgumentException("Plano não encontrado ou inativo.");
+        var planCode = NormalizePlanCode(request.PlanCode);
+        var plan = await _db.GetBillingPlanAsync(planCode)
+            ?? throw new ArgumentException("Plano não encontrado ou inativo. Use mensal ou anual.");
 
         var payerEmail = !string.IsNullOrWhiteSpace(request.PayerEmail) ? request.PayerEmail : userEmail;
         if (string.IsNullOrWhiteSpace(payerEmail) || !payerEmail.Contains('@'))
         {
-            throw new ArgumentException("E-mail do pagador não encontrado. Informe um e-mail válido para o Mercado Pago.");
+            throw new ArgumentException("E-mail do pagador não encontrado. Informe um e-mail válido para gerar o PIX.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.CardTokenId))
-        {
-            throw new ArgumentException("Não foi possível gerar o token do cartão. Recarregue a página e tente novamente.");
-        }
+        var chargeId = Guid.NewGuid();
+        var pix = await _mercadoPago.CreatePixPaymentAsync(plan, userId, chargeId, payerEmail.Trim());
 
-        var subscription = await _mercadoPago.CreateAuthorizedSubscriptionAsync(
-            plan,
-            userId,
-            payerEmail.Trim(),
-            request.CardTokenId.Trim(),
-            request.MeliSessionId);
-
-        await _db.SavePendingCheckoutAsync(userId, plan, subscription.Id, subscription.InitPoint, payerEmail.Trim(), subscription.Status);
-
-        return new CreateCheckoutResponse(subscription.InitPoint, subscription.Id, subscription.Status);
+        return await _db.SavePixChargeAsync(userId, plan, chargeId, pix);
     }
 
-    public async Task<BillingStatusDto> SyncUserSubscriptionAsync(Guid userId)
+    public async Task<PixChargeDto> GetPixChargeAsync(Guid userId, Guid chargeId)
     {
-        var providerSubscriptionId = await _db.GetProviderSubscriptionIdAsync(userId);
-        if (!string.IsNullOrWhiteSpace(providerSubscriptionId))
+        var charge = await _db.GetPixChargeAsync(userId, chargeId)
+            ?? throw new KeyNotFoundException("Cobrança PIX não encontrada para este usuário.");
+
+        if (charge.PaymentStatus is "pending" or "in_process" && !string.IsNullOrWhiteSpace(charge.MercadoPagoPaymentId))
         {
-            var subscription = await _mercadoPago.GetSubscriptionAsync(providerSubscriptionId);
-            await _db.UpdateSubscriptionFromProviderAsync(
-                userId,
-                subscription.Id,
-                subscription.Status,
-                null,
-                subscription.InitPoint,
-                subscription.NextPaymentDate,
-                subscription.RawPayload);
+            var payment = await _mercadoPago.GetPaymentAsync(charge.MercadoPagoPaymentId);
+            charge = await _db.UpdatePixChargeFromPaymentAsync(userId, charge.Id, payment);
         }
 
-        return await _db.GetOrCreateBillingStatusAsync(userId);
+        return charge;
     }
 
-    public async Task CancelUserSubscriptionAsync(Guid userId)
-    {
-        var providerSubscriptionId = await _db.GetProviderSubscriptionIdAsync(userId);
-        if (string.IsNullOrWhiteSpace(providerSubscriptionId))
-        {
-            throw new InvalidOperationException("Nenhuma assinatura do Mercado Pago foi encontrada para este usuário.");
-        }
+    public Task<BillingStatusDto> SyncUserSubscriptionAsync(Guid userId)
+        => _db.GetOrCreateBillingStatusAsync(userId);
 
-        await _mercadoPago.CancelSubscriptionAsync(providerSubscriptionId);
-        var subscription = await _mercadoPago.GetSubscriptionAsync(providerSubscriptionId);
-        await _db.UpdateSubscriptionFromProviderAsync(
-            userId,
-            subscription.Id,
-            subscription.Status,
-            null,
-            subscription.InitPoint,
-            subscription.NextPaymentDate,
-            subscription.RawPayload);
-    }
+    public Task CancelUserSubscriptionAsync(Guid userId)
+        => _db.CancelUserAccessAsync(userId);
 
     public async Task ProcessWebhookAsync(HttpContext context, string rawBody)
     {
@@ -124,48 +95,18 @@ public sealed class BillingService
             || (action?.Contains("payment", StringComparison.OrdinalIgnoreCase) ?? false))
         {
             var payment = await _mercadoPago.GetPaymentAsync(dataId);
-            Guid? paymentUserId = null;
-
-            if (!string.IsNullOrWhiteSpace(payment.ExternalReference) && Guid.TryParse(payment.ExternalReference, out var externalUserId))
-            {
-                paymentUserId = externalUserId;
-            }
-
-            if (paymentUserId is null && !string.IsNullOrWhiteSpace(payment.ProviderSubscriptionId))
-            {
-                paymentUserId = await _db.GetUserIdByProviderSubscriptionIdAsync(payment.ProviderSubscriptionId);
-            }
-
-            if (paymentUserId.HasValue)
-            {
-                await _db.UpsertPaymentFromProviderAsync(
-                    paymentUserId.Value,
-                    payment.Id,
-                    payment.ProviderSubscriptionId,
-                    payment.Status,
-                    payment.Amount,
-                    payment.Currency,
-                    payment.PaidAt,
-                    payment.RawPayload);
-            }
-
-            return;
+            await _db.UpdatePixChargeFromWebhookPaymentAsync(payment);
         }
+    }
 
-        if (eventType.Contains("subscription", StringComparison.OrdinalIgnoreCase)
-            || eventType.Contains("preapproval", StringComparison.OrdinalIgnoreCase)
-            || (action?.Contains("subscription", StringComparison.OrdinalIgnoreCase) ?? false)
-            || (action?.Contains("preapproval", StringComparison.OrdinalIgnoreCase) ?? false))
+    private static string NormalizePlanCode(string? planCode)
+    {
+        var normalized = (planCode ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized is not ("mensal" or "anual"))
         {
-            var subscription = await _mercadoPago.GetSubscriptionAsync(dataId);
-            await _db.UpdateSubscriptionFromWebhookAsync(
-                subscription.Id,
-                subscription.Status,
-                null,
-                subscription.InitPoint,
-                subscription.NextPaymentDate,
-                subscription.RawPayload);
+            throw new ArgumentException("Plano inválido. Os valores permitidos são mensal e anual.");
         }
+        return normalized;
     }
 
     private static string? ReadNestedDataId(JsonElement root)

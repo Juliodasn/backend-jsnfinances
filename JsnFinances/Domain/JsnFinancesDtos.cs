@@ -285,17 +285,30 @@ public sealed record BillingStatusDto(
     [property: JsonPropertyName("message")] string Message
 );
 
-public sealed record CreateCheckoutRequest(
+
+public sealed record CreatePixChargeRequest(
     [property: JsonPropertyName("plan_code")] string PlanCode,
-    [property: JsonPropertyName("payer_email")] string? PayerEmail = null,
-    [property: JsonPropertyName("card_token_id")] string? CardTokenId = null,
-    [property: JsonPropertyName("meli_session_id")] string? MeliSessionId = null
+    [property: JsonPropertyName("payer_email")] string? PayerEmail = null
 );
 
-public sealed record CreateCheckoutResponse(
-    [property: JsonPropertyName("checkout_url")] string? CheckoutUrl,
-    [property: JsonPropertyName("provider_subscription_id")] string ProviderSubscriptionId,
-    [property: JsonPropertyName("status")] string Status
+public sealed record PixChargeDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("user_id")] Guid UserId,
+    [property: JsonPropertyName("plan_code")] string PlanCode,
+    [property: JsonPropertyName("amount")] decimal Amount,
+    [property: JsonPropertyName("currency")] string Currency,
+    [property: JsonPropertyName("mercado_pago_payment_id")] string? MercadoPagoPaymentId,
+    [property: JsonPropertyName("mercado_pago_external_reference")] string MercadoPagoExternalReference,
+    [property: JsonPropertyName("payment_status")] string PaymentStatus,
+    [property: JsonPropertyName("qr_code")] string? QrCode,
+    [property: JsonPropertyName("qr_code_base64")] string? QrCodeBase64,
+    [property: JsonPropertyName("pix_copy_paste")] string? PixCopyPaste,
+    [property: JsonPropertyName("ticket_url")] string? TicketUrl,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset? ExpiresAt,
+    [property: JsonPropertyName("paid_at")] DateTimeOffset? PaidAt,
+    [property: JsonPropertyName("access_until")] DateTimeOffset? AccessUntil,
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt
 );
 
 public sealed record AdminIdentityDto(

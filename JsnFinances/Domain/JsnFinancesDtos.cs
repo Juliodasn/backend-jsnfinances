@@ -244,7 +244,9 @@ public sealed record PreferenciasUsuarioDto(
     [property: JsonPropertyName("filtro_ano")] string? FiltroAno,
     [property: JsonPropertyName("filtro_mes")] string? FiltroMes,
     [property: JsonPropertyName("filtro_inicio")] DateOnly? FiltroInicio,
-    [property: JsonPropertyName("filtro_fim")] DateOnly? FiltroFim
+    [property: JsonPropertyName("filtro_fim")] DateOnly? FiltroFim,
+    [property: JsonPropertyName("helpers_ocultos")] string[] HelpersOcultos,
+    [property: JsonPropertyName("helpers_vistos")] string[] HelpersVistos
 );
 
 public sealed record PreferenciasUsuarioRequest(
@@ -256,7 +258,9 @@ public sealed record PreferenciasUsuarioRequest(
     [property: JsonPropertyName("filtro_ano")] string? FiltroAno,
     [property: JsonPropertyName("filtro_mes")] string? FiltroMes,
     [property: JsonPropertyName("filtro_inicio")] DateOnly? FiltroInicio,
-    [property: JsonPropertyName("filtro_fim")] DateOnly? FiltroFim
+    [property: JsonPropertyName("filtro_fim")] DateOnly? FiltroFim,
+    [property: JsonPropertyName("helpers_ocultos")] string[]? HelpersOcultos,
+    [property: JsonPropertyName("helpers_vistos")] string[]? HelpersVistos
 );
 
 

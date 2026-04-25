@@ -1091,6 +1091,8 @@ public sealed partial class JsnFinancesDb
                 filtro_mes text null,
                 filtro_inicio date null,
                 filtro_fim date null,
+                helpers_ocultos text[] not null default '{}'::text[],
+                helpers_vistos text[] not null default '{}'::text[],
                 criado_em timestamptz not null default timezone('utc', now()),
                 atualizado_em timestamptz not null default timezone('utc', now())
             );
@@ -1105,6 +1107,8 @@ public sealed partial class JsnFinancesDb
             alter table public.preferencias_usuario add column if not exists filtro_mes text null;
             alter table public.preferencias_usuario add column if not exists filtro_inicio date null;
             alter table public.preferencias_usuario add column if not exists filtro_fim date null;
+            alter table public.preferencias_usuario add column if not exists helpers_ocultos text[] not null default '{}'::text[];
+            alter table public.preferencias_usuario add column if not exists helpers_vistos text[] not null default '{}'::text[];
             alter table public.preferencias_usuario add column if not exists criado_em timestamptz not null default timezone('utc', now());
             alter table public.preferencias_usuario add column if not exists atualizado_em timestamptz not null default timezone('utc', now());
 
@@ -1114,6 +1118,8 @@ public sealed partial class JsnFinancesDb
                    moeda = coalesce(nullif(trim(moeda), ''), 'BRL'),
                    idioma = coalesce(nullif(trim(idioma), ''), 'pt-BR'),
                    modo_nucleo = coalesce(modo_nucleo, false),
+                   helpers_ocultos = coalesce(helpers_ocultos, '{}'::text[]),
+                   helpers_vistos = coalesce(helpers_vistos, '{}'::text[]),
                    criado_em = coalesce(criado_em, timezone('utc', now())),
                    atualizado_em = coalesce(atualizado_em, timezone('utc', now()))
              where tema is null
@@ -1125,6 +1131,8 @@ public sealed partial class JsnFinancesDb
                 or idioma is null
                 or trim(idioma) = ''
                 or modo_nucleo is null
+                or helpers_ocultos is null
+                or helpers_vistos is null
                 or criado_em is null
                 or atualizado_em is null;
 
@@ -1217,7 +1225,7 @@ public sealed partial class JsnFinancesDb
         await using var connection = await _dataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            select tema, cor_principal, moeda, idioma, modo_nucleo, filtro_ano, filtro_mes, filtro_inicio, filtro_fim
+            select tema, cor_principal, moeda, idioma, modo_nucleo, filtro_ano, filtro_mes, filtro_inicio, filtro_fim, helpers_ocultos, helpers_vistos
             from public.preferencias_usuario
             where id_usuario = @userId
             """;
@@ -1244,9 +1252,9 @@ public sealed partial class JsnFinancesDb
         {
             command.CommandText = """
                 insert into public.preferencias_usuario
-                  (id_usuario, tema, cor_principal, moeda, idioma, modo_nucleo, filtro_ano, filtro_mes, filtro_inicio, filtro_fim)
+                  (id_usuario, tema, cor_principal, moeda, idioma, modo_nucleo, filtro_ano, filtro_mes, filtro_inicio, filtro_fim, helpers_ocultos, helpers_vistos)
                 values
-                  (@userId, 'claro', 'purple', 'BRL', 'pt-BR', false, null, null, null, null)
+                  (@userId, 'claro', 'purple', 'BRL', 'pt-BR', false, null, null, null, null, '{}'::text[], '{}'::text[])
                 on conflict (id_usuario) do nothing
                 """;
             Add(command, "userId", userId);
@@ -1256,31 +1264,35 @@ public sealed partial class JsnFinancesDb
 
         command.CommandText = """
             insert into public.preferencias_usuario
-              (id_usuario, tema, cor_principal, moeda, idioma, modo_nucleo, filtro_ano, filtro_mes, filtro_inicio, filtro_fim)
+              (id_usuario, tema, cor_principal, moeda, idioma, modo_nucleo, filtro_ano, filtro_mes, filtro_inicio, filtro_fim, helpers_ocultos, helpers_vistos)
             values
-              (@userId, @tema, @cor, @moeda, @idioma, @modo, @ano, @mes, @inicio, @fim)
+              (@userId, coalesce(@tema, 'claro'), coalesce(@cor, 'purple'), coalesce(@moeda, 'BRL'), coalesce(@idioma, 'pt-BR'), coalesce(@modo, false), @ano, @mes, @inicio, @fim, coalesce(@helpersOcultos, '{}'::text[]), coalesce(@helpersVistos, '{}'::text[]))
             on conflict (id_usuario)
-            do update set tema = coalesce(excluded.tema, preferencias_usuario.tema),
-                          cor_principal = coalesce(excluded.cor_principal, preferencias_usuario.cor_principal),
-                          moeda = coalesce(excluded.moeda, preferencias_usuario.moeda),
-                          idioma = coalesce(excluded.idioma, preferencias_usuario.idioma),
-                          modo_nucleo = excluded.modo_nucleo,
-                          filtro_ano = coalesce(excluded.filtro_ano, preferencias_usuario.filtro_ano),
-                          filtro_mes = coalesce(excluded.filtro_mes, preferencias_usuario.filtro_mes),
-                          filtro_inicio = coalesce(excluded.filtro_inicio, preferencias_usuario.filtro_inicio),
-                          filtro_fim = coalesce(excluded.filtro_fim, preferencias_usuario.filtro_fim),
+            do update set tema = coalesce(@tema, preferencias_usuario.tema),
+                          cor_principal = coalesce(@cor, preferencias_usuario.cor_principal),
+                          moeda = coalesce(@moeda, preferencias_usuario.moeda),
+                          idioma = coalesce(@idioma, preferencias_usuario.idioma),
+                          modo_nucleo = coalesce(@modo, preferencias_usuario.modo_nucleo),
+                          filtro_ano = coalesce(@ano, preferencias_usuario.filtro_ano),
+                          filtro_mes = coalesce(@mes, preferencias_usuario.filtro_mes),
+                          filtro_inicio = coalesce(@inicio, preferencias_usuario.filtro_inicio),
+                          filtro_fim = coalesce(@fim, preferencias_usuario.filtro_fim),
+                          helpers_ocultos = coalesce(@helpersOcultos, preferencias_usuario.helpers_ocultos),
+                          helpers_vistos = coalesce(@helpersVistos, preferencias_usuario.helpers_vistos),
                           atualizado_em = timezone('utc', now())
             """;
         Add(command, "userId", userId);
-        Add(command, "tema", NullIfWhiteSpace(request.Tema) ?? "claro", NpgsqlDbType.Text);
-        Add(command, "cor", NullIfWhiteSpace(request.CorPrincipal) ?? "purple", NpgsqlDbType.Text);
-        Add(command, "moeda", NullIfWhiteSpace(request.Moeda) ?? "BRL", NpgsqlDbType.Text);
-        Add(command, "idioma", NullIfWhiteSpace(request.Idioma) ?? "pt-BR", NpgsqlDbType.Text);
-        Add(command, "modo", request.ModoNucleo ?? false, NpgsqlDbType.Boolean);
+        Add(command, "tema", NullIfWhiteSpace(request.Tema), NpgsqlDbType.Text);
+        Add(command, "cor", NullIfWhiteSpace(request.CorPrincipal), NpgsqlDbType.Text);
+        Add(command, "moeda", NullIfWhiteSpace(request.Moeda), NpgsqlDbType.Text);
+        Add(command, "idioma", NullIfWhiteSpace(request.Idioma), NpgsqlDbType.Text);
+        Add(command, "modo", request.ModoNucleo, NpgsqlDbType.Boolean);
         Add(command, "ano", NullIfWhiteSpace(request.FiltroAno), NpgsqlDbType.Text);
         Add(command, "mes", NullIfWhiteSpace(request.FiltroMes), NpgsqlDbType.Text);
         Add(command, "inicio", request.FiltroInicio, NpgsqlDbType.Date);
         Add(command, "fim", request.FiltroFim, NpgsqlDbType.Date);
+        Add(command, "helpersOcultos", NormalizeHelperKeys(request.HelpersOcultos), NpgsqlDbType.Array | NpgsqlDbType.Text);
+        Add(command, "helpersVistos", NormalizeHelperKeys(request.HelpersVistos), NpgsqlDbType.Array | NpgsqlDbType.Text);
         await command.ExecuteNonQueryAsync();
     }
 
@@ -1294,7 +1306,18 @@ public sealed partial class JsnFinancesDb
             reader.IsDBNull(5) ? null : reader.GetString(5),
             reader.IsDBNull(6) ? null : reader.GetString(6),
             reader.IsDBNull(7) ? null : reader.GetFieldValue<DateOnly>(7),
-            reader.IsDBNull(8) ? null : reader.GetFieldValue<DateOnly>(8));
+            reader.IsDBNull(8) ? null : reader.GetFieldValue<DateOnly>(8),
+            reader.IsDBNull(9) ? Array.Empty<string>() : reader.GetFieldValue<string[]>(9),
+            reader.IsDBNull(10) ? Array.Empty<string>() : reader.GetFieldValue<string[]>(10));
+
+    private static string[]? NormalizeHelperKeys(string[]? keys)
+        => keys is null
+            ? null
+            : keys.Select(key => NullIfWhiteSpace(key))
+                .Where(key => key is not null)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(key => key!)
+                .ToArray();
 
     private static void ValidateMeta(MetaRequest request)
     {

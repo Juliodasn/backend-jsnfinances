@@ -84,6 +84,25 @@ public sealed record OrcamentoRequest(string Categoria, decimal LimiteMensal);
 public sealed record ContaRequest(string Nome, string Tipo, decimal SaldoInicial, string? Cor, bool Ativo = true);
 public sealed record TransferenciaRequest(Guid IdContaOrigem, Guid IdContaDestino, decimal Valor, DateOnly DataTransferencia, string? Observacao);
 
+public sealed record OnboardingProfileRequest(
+    [property: JsonPropertyName("profile_type")] string ProfileType,
+    [property: JsonPropertyName("main_goal")] string MainGoal,
+    [property: JsonPropertyName("financial_moment")] string FinancialMoment,
+    [property: JsonPropertyName("biggest_challenge")] string BiggestChallenge,
+    [property: JsonPropertyName("usage_frequency")] string UsageFrequency
+);
+
+public sealed record OnboardingProfileDto(
+    [property: JsonPropertyName("id_usuario")] Guid IdUsuario,
+    [property: JsonPropertyName("profile_type")] string ProfileType,
+    [property: JsonPropertyName("main_goal")] string MainGoal,
+    [property: JsonPropertyName("financial_moment")] string FinancialMoment,
+    [property: JsonPropertyName("biggest_challenge")] string BiggestChallenge,
+    [property: JsonPropertyName("usage_frequency")] string UsageFrequency,
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt
+);
+
 public sealed record MovimentacoesResponse(IReadOnlyList<MovimentacaoDto> Entradas, IReadOnlyList<MovimentacaoDto> Saidas);
 public sealed record CategoryTotalDto(string Categoria, decimal Total, decimal Percentual);
 public sealed record MonthlyTotalDto(int Ano, int Mes, decimal Entradas, decimal Saidas, decimal Saldo);
@@ -423,6 +442,21 @@ public sealed record AdminAccessLogDto(
     [property: JsonPropertyName("ip_address")] string? IpAddress,
     [property: JsonPropertyName("user_agent")] string? UserAgent,
     [property: JsonPropertyName("accessed_at")] DateTimeOffset AccessedAt
+);
+
+public sealed record AdminOnboardingProfileDto(
+    [property: JsonPropertyName("id_usuario")] Guid IdUsuario,
+    [property: JsonPropertyName("nome")] string? Nome,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("profile_type")] string? ProfileType,
+    [property: JsonPropertyName("main_goal")] string? MainGoal,
+    [property: JsonPropertyName("financial_moment")] string? FinancialMoment,
+    [property: JsonPropertyName("biggest_challenge")] string? BiggestChallenge,
+    [property: JsonPropertyName("usage_frequency")] string? UsageFrequency,
+    [property: JsonPropertyName("onboarding_completed")] bool OnboardingCompleted,
+    [property: JsonPropertyName("onboarding_skipped")] bool OnboardingSkipped,
+    [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAt,
+    [property: JsonPropertyName("updated_at")] DateTimeOffset? UpdatedAt
 );
 
 

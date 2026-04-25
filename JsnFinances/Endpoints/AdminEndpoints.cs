@@ -85,5 +85,18 @@ public static class AdminEndpoints
             await admin.RequireAdminAsync(ctx, userContext);
             return Results.Ok(await db.ListAdminAccessLogsAsync(page ?? 1, pageSize ?? 20));
         });
+
+        api.MapGet("/onboarding-perfis", async (
+            HttpContext ctx,
+            IUserContext userContext,
+            AdminAccessService admin,
+            JsnFinancesDb db,
+            string? search,
+            int? page,
+            int? pageSize) =>
+        {
+            await admin.RequireAdminAsync(ctx, userContext);
+            return Results.Ok(await db.ListAdminOnboardingProfilesAsync(search, page ?? 1, pageSize ?? 20));
+        });
     }
 }

@@ -327,6 +327,72 @@ public sealed partial class JsnFinancesDb
         await command.ExecuteNonQueryAsync();
     }
 
+    public async Task<PagedResultDto<AdminOnboardingProfileDto>> ListAdminOnboardingProfilesAsync(string? search, int page, int pageSize)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var offset = (page - 1) * pageSize;
+
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select
+                u.id,
+                coalesce(p.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name') as nome,
+                u.email,
+                op.profile_type,
+                op.main_goal,
+                op.financial_moment,
+                op.biggest_challenge,
+                op.usage_frequency,
+                coalesce(o.completed, false) as onboarding_completed,
+                coalesce(o.skipped, false) as onboarding_skipped,
+                op.created_at,
+                op.updated_at,
+                count(*) over()::int as total_count
+            from auth.users u
+            left join public.perfis p on p.id_usuario = u.id
+            left join public.user_onboarding o on o.user_id = u.id
+            left join public.user_onboarding_profile op on op.id_usuario = u.id
+            where (@search is null
+                   or u.email ilike '%' || @search || '%'
+                   or coalesce(p.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name', '') ilike '%' || @search || '%'
+                   or coalesce(op.profile_type, '') ilike '%' || @search || '%'
+                   or coalesce(op.main_goal, '') ilike '%' || @search || '%'
+                   or coalesce(op.financial_moment, '') ilike '%' || @search || '%'
+                   or coalesce(op.biggest_challenge, '') ilike '%' || @search || '%'
+                   or coalesce(op.usage_frequency, '') ilike '%' || @search || '%')
+            order by coalesce(op.updated_at, u.created_at) desc
+            limit @limit offset @offset
+            """;
+        Add(command, "search", NullIfWhiteSpace(search));
+        Add(command, "limit", pageSize);
+        Add(command, "offset", offset);
+
+        var rows = new List<AdminOnboardingProfileDto>();
+        var total = 0;
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            total = reader.GetInt32(12);
+            rows.Add(new AdminOnboardingProfileDto(
+                reader.GetGuid(0),
+                ReadNullableString(reader, 1),
+                reader.GetString(2),
+                ReadNullableString(reader, 3),
+                ReadNullableString(reader, 4),
+                ReadNullableString(reader, 5),
+                ReadNullableString(reader, 6),
+                ReadNullableString(reader, 7),
+                reader.GetBoolean(8),
+                reader.GetBoolean(9),
+                ReadNullableDateTimeOffset(reader, 10),
+                ReadNullableDateTimeOffset(reader, 11)));
+        }
+
+        return BuildPagedResult(rows, total, page, pageSize);
+    }
+
     private static PagedResultDto<T> BuildPagedResult<T>(IReadOnlyList<T> items, int total, int page, int pageSize)
     {
         var totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)pageSize));

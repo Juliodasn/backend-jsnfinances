@@ -28,6 +28,12 @@ public static class JsnFinancesEndpoints
         api.MapPut("/preferencias", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, PreferenciasUsuarioRequest request) =>
             Results.Ok(await db.UpsertPreferenciasAsync(userContext.GetUserId(ctx), request)));
 
+        api.MapGet("/onboarding/profile", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
+            Results.Ok(await db.GetOnboardingProfileAsync(userContext.GetUserId(ctx))));
+
+        api.MapPut("/onboarding/profile", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, OnboardingProfileRequest request) =>
+            Results.Ok(await db.UpsertOnboardingProfileAsync(userContext.GetUserId(ctx), request)));
+
 
         api.MapGet("/financeiro/movimentacoes", async (
             HttpContext ctx,

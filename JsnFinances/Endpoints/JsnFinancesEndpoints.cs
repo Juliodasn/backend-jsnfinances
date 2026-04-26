@@ -161,6 +161,15 @@ public static class JsnFinancesEndpoints
         api.MapGet("/categorias", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
             Results.Ok(await db.ListCategoriasAsync(userContext.GetUserId(ctx))));
 
+        api.MapGet("/subcategorias", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, Guid? idCategoria) =>
+            Results.Ok(await db.ListSubcategoriasAsync(userContext.GetUserId(ctx), idCategoria)));
+
+        api.MapPost("/subcategorias", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, SubcategoriaRequest request) =>
+        {
+            var id = await db.InsertSubcategoriaAsync(userContext.GetUserId(ctx), request);
+            return Results.Created($"/api/subcategorias/{id}", new { id });
+        });
+
         api.MapPost("/categorias", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, CategoriaRequest request) =>
         {
             var id = await db.InsertCategoriaAsync(userContext.GetUserId(ctx), request);

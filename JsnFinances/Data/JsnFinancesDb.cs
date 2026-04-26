@@ -31,18 +31,22 @@ public sealed partial class JsnFinancesDb
 
         await using var connection = await _dataSource.OpenConnectionAsync();
         var hasContaColumn = await ColumnExistsAsync(connection, tabela, "id_conta");
-        var contaSelect = hasContaColumn ? "id_conta" : "null::uuid as id_conta";
-        var contaFilter = hasContaColumn ? "and (@idConta is null or id_conta = @idConta)" : string.Empty;
+        var hasSubcategoriaColumn = await ColumnExistsAsync(connection, tabela, "id_subcategoria");
+        var contaSelect = hasContaColumn ? "m.id_conta" : "null::uuid as id_conta";
+        var subcategoriaSelect = hasSubcategoriaColumn ? "m.id_subcategoria, sc.nome as subcategoria_nome" : "null::uuid as id_subcategoria, null::text as subcategoria_nome";
+        var subcategoriaJoin = hasSubcategoriaColumn ? "left join public.subcategorias sc on sc.id = m.id_subcategoria and sc.id_usuario = m.id_usuario" : string.Empty;
+        var contaFilter = hasContaColumn ? "and (@idConta is null or m.id_conta = @idConta)" : string.Empty;
 
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-            select id, descricao, categoria, valor, data_movimentacao, observacao, {contaSelect}
-            from public.{tabela}
-            where id_usuario = @userId
-              and (@inicio is null or data_movimentacao >= @inicio)
-              and (@fim is null or data_movimentacao <= @fim)
+            select m.id, m.descricao, m.categoria, {subcategoriaSelect}, m.valor, m.data_movimentacao, m.observacao, {contaSelect}
+            from public.{tabela} m
+            {subcategoriaJoin}
+            where m.id_usuario = @userId
+              and (@inicio is null or m.data_movimentacao >= @inicio)
+              and (@fim is null or m.data_movimentacao <= @fim)
               {contaFilter}
-            order by data_movimentacao desc, criado_em desc
+            order by m.data_movimentacao desc, m.criado_em desc
             limit @limit offset @offset
             """;
         Add(command, "userId", userId);
@@ -60,10 +64,12 @@ public sealed partial class JsnFinancesDb
                 reader.GetGuid(0),
                 reader.GetString(1),
                 reader.IsDBNull(2) ? null : reader.GetString(2),
-                reader.GetDecimal(3),
-                reader.GetFieldValue<DateOnly>(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5),
-                reader.IsDBNull(6) ? null : reader.GetGuid(6)
+                reader.IsDBNull(3) ? null : reader.GetGuid(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetDecimal(5),
+                reader.GetFieldValue<DateOnly>(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetGuid(8)
             ));
         }
 
@@ -290,14 +296,15 @@ public sealed partial class JsnFinancesDb
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            select id, tipo, descricao, categoria, valor, data_movimentacao, observacao, id_conta
+            select t.id, t.tipo, t.descricao, t.categoria, t.id_subcategoria, sc.nome as subcategoria_nome, t.valor, t.data_movimentacao, t.observacao, t.id_conta
             from (
-              select id, 'entrada' as tipo, descricao, categoria, valor, data_movimentacao, observacao, id_conta, criado_em, id_usuario
+              select id, 'entrada' as tipo, descricao, categoria, id_subcategoria, valor, data_movimentacao, observacao, id_conta, criado_em, id_usuario
               from public.entradas
               union all
-              select id, 'saida' as tipo, descricao, categoria, valor, data_movimentacao, observacao, id_conta, criado_em, id_usuario
+              select id, 'saida' as tipo, descricao, categoria, id_subcategoria, valor, data_movimentacao, observacao, id_conta, criado_em, id_usuario
               from public.saidas
             ) t
+            left join public.subcategorias sc on sc.id = t.id_subcategoria and sc.id_usuario = t.id_usuario
             where t.id_usuario = @userId
               and (@inicio is null or t.data_movimentacao >= @inicio)
               and (@fim is null or t.data_movimentacao <= @fim)
@@ -327,10 +334,12 @@ public sealed partial class JsnFinancesDb
                 reader.GetString(1),
                 reader.GetString(2),
                 reader.IsDBNull(3) ? null : reader.GetString(3),
-                reader.GetDecimal(4),
-                reader.GetFieldValue<DateOnly>(5),
-                reader.IsDBNull(6) ? null : reader.GetString(6),
-                reader.IsDBNull(7) ? null : reader.GetGuid(7)
+                reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.GetDecimal(6),
+                reader.GetFieldValue<DateOnly>(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.IsDBNull(9) ? null : reader.GetGuid(9)
             ));
         }
 
@@ -345,13 +354,14 @@ public sealed partial class JsnFinancesDb
         await using var connection = await _dataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-            insert into public.{tabela} (id_usuario, descricao, categoria, valor, data_movimentacao, observacao, id_conta)
-            values (@userId, @descricao, @categoria, @valor, @data, @observacao, @idConta)
+            insert into public.{tabela} (id_usuario, descricao, categoria, id_subcategoria, valor, data_movimentacao, observacao, id_conta)
+            values (@userId, @descricao, @categoria, @idSubcategoria, @valor, @data, @observacao, @idConta)
             returning id
             """;
         Add(command, "userId", userId);
         Add(command, "descricao", request.Reason.Trim());
         Add(command, "categoria", NormalizeCategoria(request.Category));
+        Add(command, "idSubcategoria", request.SubcategoryId, NpgsqlDbType.Uuid);
         Add(command, "valor", request.Value);
         Add(command, "data", request.Date);
         Add(command, "observacao", NullIfWhiteSpace(request.Notes));
@@ -374,12 +384,13 @@ public sealed partial class JsnFinancesDb
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = $"""
-                insert into public.{tabela} (id_usuario, descricao, categoria, valor, data_movimentacao, observacao, id_conta)
-                values (@userId, @descricao, @categoria, @valor, @data, @observacao, @idConta)
+                insert into public.{tabela} (id_usuario, descricao, categoria, id_subcategoria, valor, data_movimentacao, observacao, id_conta)
+                values (@userId, @descricao, @categoria, @idSubcategoria, @valor, @data, @observacao, @idConta)
                 """;
             Add(command, "userId", userId);
             Add(command, "descricao", request.Reason.Trim());
             Add(command, "categoria", NormalizeCategoria(request.Category));
+            Add(command, "idSubcategoria", request.SubcategoryId, NpgsqlDbType.Uuid);
             Add(command, "valor", request.Value);
             Add(command, "data", request.Date);
             Add(command, "observacao", NullIfWhiteSpace(request.Notes));
@@ -401,6 +412,7 @@ public sealed partial class JsnFinancesDb
             update public.{tabela}
                set descricao = @descricao,
                    categoria = @categoria,
+                   id_subcategoria = @idSubcategoria,
                    valor = @valor,
                    data_movimentacao = @data,
                    observacao = @observacao,
@@ -411,6 +423,7 @@ public sealed partial class JsnFinancesDb
         Add(command, "userId", userId);
         Add(command, "descricao", request.Reason.Trim());
         Add(command, "categoria", NormalizeCategoria(request.Category));
+        Add(command, "idSubcategoria", request.SubcategoryId, NpgsqlDbType.Uuid);
         Add(command, "valor", request.Value);
         Add(command, "data", request.Date);
         Add(command, "observacao", NullIfWhiteSpace(request.Notes));
@@ -465,6 +478,71 @@ public sealed partial class JsnFinancesDb
         }
 
         return rows;
+    }
+
+    public async Task<IReadOnlyList<SubcategoriaDto>> ListSubcategoriasAsync(Guid userId, Guid? idCategoria = null)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select sc.id, sc.id_categoria, sc.nome, sc.descricao, sc.cor, sc.icone, sc.ativo, c.nome, c.tipo
+            from public.subcategorias sc
+            inner join public.categorias c on c.id = sc.id_categoria and c.id_usuario = sc.id_usuario
+            where sc.id_usuario = @userId
+              and (@idCategoria is null or sc.id_categoria = @idCategoria)
+            order by c.nome asc, sc.nome asc
+            """;
+        Add(command, "userId", userId);
+        Add(command, "idCategoria", idCategoria, NpgsqlDbType.Uuid);
+
+        var rows = new List<SubcategoriaDto>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(new SubcategoriaDto(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.GetBoolean(6),
+                reader.GetString(7),
+                reader.GetString(8)));
+        }
+
+        return rows;
+    }
+
+    public async Task<Guid> InsertSubcategoriaAsync(Guid userId, SubcategoriaRequest request)
+    {
+        if (request.IdCategoria == Guid.Empty) throw new ArgumentException("Selecione a categoria da subcategoria.");
+        if (string.IsNullOrWhiteSpace(request.Nome)) throw new ArgumentException("Informe o nome da subcategoria.");
+
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            insert into public.subcategorias (id_usuario, id_categoria, nome, descricao, cor, icone, ativo)
+            select @userId, c.id, @nome, @descricao, @cor, @icone, @ativo
+            from public.categorias c
+            where c.id = @idCategoria and c.id_usuario = @userId
+            returning id
+            """;
+        Add(command, "userId", userId);
+        Add(command, "idCategoria", request.IdCategoria, NpgsqlDbType.Uuid);
+        Add(command, "nome", request.Nome.Trim());
+        Add(command, "descricao", NullIfWhiteSpace(request.Descricao));
+        Add(command, "cor", NullIfWhiteSpace(request.Cor));
+        Add(command, "icone", NullIfWhiteSpace(request.Icone));
+        Add(command, "ativo", request.Ativo);
+
+        var result = await command.ExecuteScalarAsync();
+        if (result is null)
+        {
+            throw new InvalidOperationException("Categoria não encontrada para criar a subcategoria.");
+        }
+
+        return (Guid)result;
     }
 
     public async Task<Guid> InsertCategoriaAsync(Guid userId, CategoriaRequest request)
@@ -892,18 +970,76 @@ public sealed partial class JsnFinancesDb
     public async Task DeleteContaAsync(Guid userId, Guid id)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            delete from public.contas
-            where id = @id and id_usuario = @userId
-            """;
-        Add(command, "id", id);
-        Add(command, "userId", userId);
+        await using var transaction = await connection.BeginTransactionAsync();
 
-        if (await command.ExecuteNonQueryAsync() == 0)
+        await using var existsCommand = connection.CreateCommand();
+        existsCommand.Transaction = transaction;
+        existsCommand.CommandText = """
+            select 1
+            from public.contas
+            where id = @id and id_usuario = @userId
+            limit 1
+            """;
+        Add(existsCommand, "id", id);
+        Add(existsCommand, "userId", userId);
+
+        if (await existsCommand.ExecuteScalarAsync() is null)
         {
             throw new InvalidOperationException("Conta não encontrada para o usuário atual.");
         }
+
+        await using (var unlinkEntradas = connection.CreateCommand())
+        {
+            unlinkEntradas.Transaction = transaction;
+            unlinkEntradas.CommandText = """
+                update public.entradas
+                set id_conta = null
+                where id_usuario = @userId and id_conta = @id
+                """;
+            Add(unlinkEntradas, "id", id);
+            Add(unlinkEntradas, "userId", userId);
+            await unlinkEntradas.ExecuteNonQueryAsync();
+        }
+
+        await using (var unlinkSaidas = connection.CreateCommand())
+        {
+            unlinkSaidas.Transaction = transaction;
+            unlinkSaidas.CommandText = """
+                update public.saidas
+                set id_conta = null
+                where id_usuario = @userId and id_conta = @id
+                """;
+            Add(unlinkSaidas, "id", id);
+            Add(unlinkSaidas, "userId", userId);
+            await unlinkSaidas.ExecuteNonQueryAsync();
+        }
+
+        await using (var deleteTransfers = connection.CreateCommand())
+        {
+            deleteTransfers.Transaction = transaction;
+            deleteTransfers.CommandText = """
+                delete from public.transferencias_contas
+                where id_usuario = @userId
+                  and (id_conta_origem = @id or id_conta_destino = @id)
+                """;
+            Add(deleteTransfers, "id", id);
+            Add(deleteTransfers, "userId", userId);
+            await deleteTransfers.ExecuteNonQueryAsync();
+        }
+
+        await using (var deleteAccount = connection.CreateCommand())
+        {
+            deleteAccount.Transaction = transaction;
+            deleteAccount.CommandText = """
+                delete from public.contas
+                where id = @id and id_usuario = @userId
+                """;
+            Add(deleteAccount, "id", id);
+            Add(deleteAccount, "userId", userId);
+            await deleteAccount.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
     }
 
     public async Task<IReadOnlyList<CalendarioMovimentacaoDto>> ListCalendarioMovimentacoesAsync(Guid userId, DateOnly dataInicio, DateOnly dataFim)
@@ -949,6 +1085,8 @@ public sealed partial class JsnFinancesDb
                     "transferencia",
                     $"Transferência: {origem} → {destino}",
                     "Transferência",
+                    null,
+                    null,
                     valor,
                     data,
                     string.IsNullOrWhiteSpace(observacao) ? "Movimentação entre contas próprias. Não altera o saldo total." : observacao,
@@ -957,8 +1095,8 @@ public sealed partial class JsnFinancesDb
         }
 
         return entradas
-            .Select(x => new CalendarioMovimentacaoDto(x.Id, "entrada", x.Descricao, x.Categoria, x.Valor, x.DataMovimentacao, x.Observacao, x.IdConta))
-            .Concat(saidas.Select(x => new CalendarioMovimentacaoDto(x.Id, "saida", x.Descricao, x.Categoria, x.Valor, x.DataMovimentacao, x.Observacao, x.IdConta)))
+            .Select(x => new CalendarioMovimentacaoDto(x.Id, "entrada", x.Descricao, x.Categoria, x.IdSubcategoria, x.SubcategoriaNome, x.Valor, x.DataMovimentacao, x.Observacao, x.IdConta))
+            .Concat(saidas.Select(x => new CalendarioMovimentacaoDto(x.Id, "saida", x.Descricao, x.Categoria, x.IdSubcategoria, x.SubcategoriaNome, x.Valor, x.DataMovimentacao, x.Observacao, x.IdConta)))
             .Concat(transferencias)
             .OrderByDescending(x => x.DataMovimentacao)
             .ThenBy(x => x.Tipo)
@@ -985,6 +1123,8 @@ public sealed partial class JsnFinancesDb
             reader.GetGuid(0),
             reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2),
+            null,
+            null,
             reader.GetDecimal(3),
             reader.GetFieldValue<DateOnly>(4),
             reader.IsDBNull(5) ? null : reader.GetString(5),

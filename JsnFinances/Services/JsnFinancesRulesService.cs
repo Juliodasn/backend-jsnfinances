@@ -858,7 +858,8 @@ public sealed class JsnFinancesRulesService
                 valorParcela,
                 data,
                 observacao,
-                request.AccountId);
+                request.AccountId,
+                request.SubcategoryId);
         }
     }
 

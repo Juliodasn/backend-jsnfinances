@@ -6,6 +6,8 @@ public sealed record MovimentacaoDto(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("descricao")] string Descricao,
     [property: JsonPropertyName("categoria")] string? Categoria,
+    [property: JsonPropertyName("id_subcategoria")] Guid? IdSubcategoria,
+    [property: JsonPropertyName("subcategoria_nome")] string? SubcategoriaNome,
     [property: JsonPropertyName("valor")] decimal Valor,
     [property: JsonPropertyName("data_movimentacao")] DateOnly DataMovimentacao,
     [property: JsonPropertyName("observacao")] string? Observacao,
@@ -20,6 +22,18 @@ public sealed record CategoriaDto(
     [property: JsonPropertyName("cor")] string? Cor,
     [property: JsonPropertyName("icone")] string? Icone,
     [property: JsonPropertyName("ativo")] bool Ativo
+);
+
+public sealed record SubcategoriaDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("id_categoria")] Guid IdCategoria,
+    [property: JsonPropertyName("nome")] string Nome,
+    [property: JsonPropertyName("descricao")] string? Descricao,
+    [property: JsonPropertyName("cor")] string? Cor,
+    [property: JsonPropertyName("icone")] string? Icone,
+    [property: JsonPropertyName("ativo")] bool Ativo,
+    [property: JsonPropertyName("categoria_nome")] string? CategoriaNome,
+    [property: JsonPropertyName("categoria_tipo")] string? CategoriaTipo
 );
 
 public sealed record MetaDto(
@@ -64,7 +78,8 @@ public sealed record MovimentoRequest(
     decimal Value,
     DateOnly Date,
     string? Notes,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    Guid? SubcategoryId = null
 );
 
 public sealed record ParcelamentoRequest(
@@ -74,10 +89,19 @@ public sealed record ParcelamentoRequest(
     DateOnly Date,
     string? Notes,
     int Parcelas,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    Guid? SubcategoryId = null
 );
 
 public sealed record CategoriaRequest(string Nome, string Tipo, string? Descricao, string? Cor, string? Icone, bool Ativo = true);
+public sealed record SubcategoriaRequest(
+    [property: JsonPropertyName("id_categoria")] Guid IdCategoria,
+    string Nome,
+    string? Descricao,
+    string? Cor,
+    string? Icone,
+    bool Ativo = true
+);
 public sealed record MetaRequest(string Titulo, string? Categoria, string? Descricao, decimal ValorObjetivo, decimal ValorGuardado, DateOnly? DataLimite, string? Cor, string? Icone);
 public sealed record GuardarValorMetaRequest(decimal Valor);
 public sealed record OrcamentoRequest(string Categoria, decimal LimiteMensal);
@@ -210,6 +234,8 @@ public sealed record CalendarioMovimentacaoDto(
     [property: JsonPropertyName("tipo")] string Tipo,
     [property: JsonPropertyName("descricao")] string Descricao,
     [property: JsonPropertyName("categoria")] string? Categoria,
+    [property: JsonPropertyName("id_subcategoria")] Guid? IdSubcategoria,
+    [property: JsonPropertyName("subcategoria_nome")] string? SubcategoriaNome,
     [property: JsonPropertyName("valor")] decimal Valor,
     [property: JsonPropertyName("data_movimentacao")] DateOnly DataMovimentacao,
     [property: JsonPropertyName("observacao")] string? Observacao,
@@ -231,6 +257,8 @@ public sealed record TransacaoPaginadaDto(
     [property: JsonPropertyName("tipo")] string Tipo,
     [property: JsonPropertyName("descricao")] string Descricao,
     [property: JsonPropertyName("categoria")] string? Categoria,
+    [property: JsonPropertyName("id_subcategoria")] Guid? IdSubcategoria,
+    [property: JsonPropertyName("subcategoria_nome")] string? SubcategoriaNome,
     [property: JsonPropertyName("valor")] decimal Valor,
     [property: JsonPropertyName("data_movimentacao")] DateOnly DataMovimentacao,
     [property: JsonPropertyName("observacao")] string? Observacao,

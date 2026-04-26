@@ -1,3 +1,4 @@
+using System.Globalization;
 using JsnFinances.Api.Data;
 using JsnFinances.Api.Domain;
 
@@ -75,14 +76,14 @@ public sealed class JsnFinancesRulesService
         var maiorCategoria = resumo.Categorias.OrderByDescending(x => x.Total).FirstOrDefault();
         if (maiorCategoria is not null)
         {
-            insights.Add(new InsightDto("Maior movimentação por categoria", $"A categoria {maiorCategoria.Categoria} movimentou {maiorCategoria.Total:C} no período.", "info"));
+            insights.Add(new InsightDto("Maior movimentação por categoria", $"A categoria {maiorCategoria.Categoria} movimentou {FormatCurrencyBr(maiorCategoria.Total)} no período.", "info"));
         }
 
         insights.Add(new InsightDto(
             "Saldo do período",
             resumo.Saldo >= 0
-                ? $"Seu saldo está positivo em {resumo.Saldo:C}."
-                : $"Seu saldo está negativo em {Math.Abs(resumo.Saldo):C}.",
+                ? $"Seu saldo está positivo em {FormatCurrencyBr(resumo.Saldo)}."
+                : $"Seu saldo está negativo em {FormatCurrencyBr(Math.Abs(resumo.Saldo))}.",
             resumo.Saldo >= 0 ? "positive" : "negative"));
 
         var metaDestaque = metas
@@ -218,7 +219,7 @@ public sealed class JsnFinancesRulesService
 
                 var mensagem = status switch
                 {
-                    "exceeded" => $"Você ultrapassou {Math.Abs(orcamento.LimiteMensal - usado):C} no orçamento de {orcamento.Categoria}.",
+                    "exceeded" => $"Você ultrapassou {FormatCurrencyBr(Math.Abs(orcamento.LimiteMensal - usado))} no orçamento de {orcamento.Categoria}.",
                     "warning" => $"Você já usou {percentual:0}% do orçamento de {orcamento.Categoria}.",
                     _ => $"Orçamento de {orcamento.Categoria} dentro do limite."
                 };
@@ -509,7 +510,7 @@ public sealed class JsnFinancesRulesService
             insights.Add(new DashboardSmartInsightDto(
                 "💸",
                 "Maior gasto do período",
-                $"Seu maior gasto foi {topExpense.Categoria}, com {topExpense.Total:C} no período selecionado.",
+                $"Seu maior gasto foi {topExpense.Categoria}, com {FormatCurrencyBr(topExpense.Total)} no período selecionado.",
                 "negative"));
         }
 
@@ -534,7 +535,7 @@ public sealed class JsnFinancesRulesService
         insights.Add(new DashboardSmartInsightDto(
             annualBalance >= 0 ? "🟢" : "🔴",
             $"Saldo anual de {inicio.Year}",
-            $"Seu saldo anual está {(annualBalance >= 0 ? "positivo" : "negativo")} em {Math.Abs(annualBalance):C}.",
+            $"Seu saldo anual está {(annualBalance >= 0 ? "positivo" : "negativo")} em {FormatCurrencyBr(Math.Abs(annualBalance))}.",
             annualBalance >= 0 ? "positive" : "negative"));
 
         if (bestGoal is not null)
@@ -543,7 +544,7 @@ public sealed class JsnFinancesRulesService
             insights.Add(new DashboardSmartInsightDto(
                 "🎯",
                 "Meta em destaque",
-                $"Você está a {Math.Round(progress)}% da meta {bestGoal.Titulo}. Falta {Math.Max(bestGoal.ValorObjetivo - bestGoal.ValorGuardado, 0):C}.",
+                $"Você está a {Math.Round(progress)}% da meta {bestGoal.Titulo}. Falta {FormatCurrencyBr(Math.Max(bestGoal.ValorObjetivo - bestGoal.ValorGuardado, 0))}.",
                 progress >= 80 ? "positive" : "neutral"));
         }
 
@@ -566,7 +567,7 @@ public sealed class JsnFinancesRulesService
             insights.Insert(0, new DashboardSmartInsightDto(
                 "🔴",
                 "Atenção ao saldo",
-                $"No período selecionado, as saídas superaram as entradas em {Math.Abs(balance):C}.",
+                $"No período selecionado, as saídas superaram as entradas em {FormatCurrencyBr(Math.Abs(balance))}.",
                 "negative"));
         }
 
@@ -601,7 +602,7 @@ public sealed class JsnFinancesRulesService
             exceeded ? "⚠️" : "🔔",
             "Alerta de orçamento",
             exceeded
-                ? $"A categoria {alert.Categoria} ultrapassou o orçamento em {(alert.Gasto - alert.Limite):C}."
+                ? $"A categoria {alert.Categoria} ultrapassou o orçamento em {FormatCurrencyBr(alert.Gasto - alert.Limite)}."
                 : $"A categoria {alert.Categoria} já usou {alert.Percent:0.0}% do orçamento mensal.",
             exceeded ? "negative" : "warning");
     }
@@ -779,27 +780,27 @@ public sealed class JsnFinancesRulesService
 
         if (expenseDiff < 0)
         {
-            return $"Você gastou {Math.Abs(expenseDiff):C} a menos que no {label}. Ótimo sinal para o seu controle financeiro.";
+            return $"Você gastou {FormatCurrencyBr(Math.Abs(expenseDiff))} a menos que no {label}. Ótimo sinal para o seu controle financeiro.";
         }
 
         if (expenseDiff > 0)
         {
-            return $"Você gastou {expenseDiff:C} a mais que no {label}. Vale revisar as categorias que mais cresceram.";
+            return $"Você gastou {FormatCurrencyBr(expenseDiff)} a mais que no {label}. Vale revisar as categorias que mais cresceram.";
         }
 
         if (entryDiff > 0)
         {
-            return $"Suas entradas aumentaram {entryDiff:C} em relação ao {label}. Bom momento para fortalecer suas metas.";
+            return $"Suas entradas aumentaram {FormatCurrencyBr(entryDiff)} em relação ao {label}. Bom momento para fortalecer suas metas.";
         }
 
         if (balanceDiff > 0)
         {
-            return $"Seu saldo melhorou {balanceDiff:C} em relação ao {label}. Continue acompanhando essa evolução.";
+            return $"Seu saldo melhorou {FormatCurrencyBr(balanceDiff)} em relação ao {label}. Continue acompanhando essa evolução.";
         }
 
         if (balanceDiff < 0)
         {
-            return $"Seu saldo caiu {Math.Abs(balanceDiff):C} em relação ao {label}. Tente revisar os maiores gastos do período.";
+            return $"Seu saldo caiu {FormatCurrencyBr(Math.Abs(balanceDiff))} em relação ao {label}. Tente revisar os maiores gastos do período.";
         }
 
         return $"Seu resultado ficou estável em relação ao {label}.";
@@ -848,7 +849,7 @@ public sealed class JsnFinancesRulesService
             var observacao = string.Join(" ", new[]
             {
                 $"Parcelamento automático: parcela {numero}/{request.Parcelas}.",
-                $"Valor total original: {request.Value:C}.",
+                $"Valor total original: {FormatCurrencyBr(request.Value)}.",
                 request.Notes
             }.Where(x => !string.IsNullOrWhiteSpace(x)));
 
@@ -861,6 +862,13 @@ public sealed class JsnFinancesRulesService
                 request.AccountId,
                 request.SubcategoryId);
         }
+    }
+
+    private static string FormatCurrencyBr(decimal value)
+    {
+        var culture = CultureInfo.GetCultureInfo("pt-BR");
+        var formatted = Math.Abs(value).ToString("N2", culture);
+        return value < 0 ? $"-R$ {formatted}" : $"R$ {formatted}";
     }
 
     private static decimal Percent(decimal value, decimal total)

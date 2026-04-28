@@ -10,8 +10,6 @@ public sealed partial class JsnFinancesDb
     public async Task<IReadOnlyList<BillingPlanDto>> ListBillingPlansAsync()
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         await using var command = connection.CreateCommand();
         command.CommandText = """
             select code, nome, descricao, valor, moeda, frequency, frequency_type, destaque
@@ -43,8 +41,6 @@ public sealed partial class JsnFinancesDb
         if (string.IsNullOrWhiteSpace(planCode)) return null;
 
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         await using var command = connection.CreateCommand();
         command.CommandText = """
             select code, nome, descricao, valor, moeda, frequency, frequency_type, destaque
@@ -71,8 +67,6 @@ public sealed partial class JsnFinancesDb
     public async Task<BillingStatusDto> GetOrCreateBillingStatusAsync(Guid userId)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         await using (var insert = connection.CreateCommand())
         {
             insert.CommandText = """
@@ -106,8 +100,6 @@ public sealed partial class JsnFinancesDb
     public async Task<PixChargeDto> SavePixChargeAsync(Guid userId, BillingPlanDto plan, Guid chargeId, MercadoPagoCreatePixPaymentResult pix)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         await using var command = connection.CreateCommand();
         command.CommandText = """
             insert into public.billing_pix_charges
@@ -147,8 +139,6 @@ public sealed partial class JsnFinancesDb
     public async Task<PixChargeDto?> GetPixChargeAsync(Guid userId, Guid chargeId)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         await using var command = connection.CreateCommand();
         command.CommandText = """
             select id, user_id, plan_code, amount, currency, mercado_pago_payment_id, mercado_pago_external_reference,
@@ -168,8 +158,6 @@ public sealed partial class JsnFinancesDb
     public async Task<PixChargeDto> UpdatePixChargeFromPaymentAsync(Guid userId, Guid chargeId, MercadoPagoPaymentResult payment)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         var charge = await UpdatePixChargeFromPaymentAsync(connection, userId, chargeId, payment)
             ?? throw new KeyNotFoundException("Cobrança PIX não encontrada para este usuário.");
 
@@ -185,8 +173,6 @@ public sealed partial class JsnFinancesDb
     public async Task UpdatePixChargeFromWebhookPaymentAsync(MercadoPagoPaymentResult payment)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         var charge = await UpdatePixChargeFromPaymentAsync(connection, null, null, payment);
         if (charge?.PaymentStatus == "approved")
         {
@@ -197,8 +183,6 @@ public sealed partial class JsnFinancesDb
     public async Task CancelUserAccessAsync(Guid userId)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         await using var command = connection.CreateCommand();
         command.CommandText = """
             update public.user_subscriptions
@@ -218,8 +202,6 @@ public sealed partial class JsnFinancesDb
         string payload)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
-        await EnsurePixBillingSchemaAsync(connection);
-
         await using var command = connection.CreateCommand();
         command.CommandText = """
             insert into public.billing_events
@@ -500,6 +482,7 @@ public sealed partial class JsnFinancesDb
     private static async Task EnsurePixBillingSchemaAsync(NpgsqlConnection connection)
     {
         await using var command = connection.CreateCommand();
+        command.CommandTimeout = 90;
         command.CommandText = """
             create extension if not exists pgcrypto;
 

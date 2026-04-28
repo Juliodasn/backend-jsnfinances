@@ -1,6 +1,7 @@
 using System.Text.Json;
 using JsnFinances.Api.Data;
 using JsnFinances.Api.Domain;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace JsnFinances.Api.Billing;
 
@@ -9,22 +10,35 @@ public sealed class BillingService
     private readonly JsnFinancesDb _db;
     private readonly MercadoPagoClient _mercadoPago;
     private readonly MercadoPagoWebhookValidator _webhookValidator;
+    private readonly IMemoryCache _cache;
 
     public BillingService(
         JsnFinancesDb db,
         MercadoPagoClient mercadoPago,
-        MercadoPagoWebhookValidator webhookValidator)
+        MercadoPagoWebhookValidator webhookValidator,
+        IMemoryCache cache)
     {
         _db = db;
         _mercadoPago = mercadoPago;
         _webhookValidator = webhookValidator;
+        _cache = cache;
     }
 
     public Task<IReadOnlyList<BillingPlanDto>> ListPlansAsync()
         => _db.ListBillingPlansAsync();
 
-    public Task<BillingStatusDto> GetStatusAsync(Guid userId)
-        => _db.GetOrCreateBillingStatusAsync(userId);
+    public async Task<BillingStatusDto> GetStatusAsync(Guid userId, bool forceRefresh = false)
+    {
+        var cacheKey = GetBillingStatusCacheKey(userId);
+        if (!forceRefresh && _cache.TryGetValue(cacheKey, out BillingStatusDto? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var status = await _db.GetOrCreateBillingStatusAsync(userId);
+        _cache.Set(cacheKey, status, TimeSpan.FromSeconds(30));
+        return status;
+    }
 
     public async Task<PixChargeDto> CreatePixChargeAsync(Guid userId, string? userEmail, CreatePixChargeRequest request)
     {
@@ -58,11 +72,17 @@ public sealed class BillingService
         return charge;
     }
 
-    public Task<BillingStatusDto> SyncUserSubscriptionAsync(Guid userId)
-        => _db.GetOrCreateBillingStatusAsync(userId);
+    public async Task<BillingStatusDto> SyncUserSubscriptionAsync(Guid userId)
+    {
+        _cache.Remove(GetBillingStatusCacheKey(userId));
+        return await GetStatusAsync(userId, forceRefresh: true);
+    }
 
-    public Task CancelUserSubscriptionAsync(Guid userId)
-        => _db.CancelUserAccessAsync(userId);
+    public async Task CancelUserSubscriptionAsync(Guid userId)
+    {
+        await _db.CancelUserAccessAsync(userId);
+        _cache.Remove(GetBillingStatusCacheKey(userId));
+    }
 
     public async Task ProcessWebhookAsync(HttpContext context, string rawBody)
     {
@@ -98,6 +118,9 @@ public sealed class BillingService
             await _db.UpdatePixChargeFromWebhookPaymentAsync(payment);
         }
     }
+
+    private static string GetBillingStatusCacheKey(Guid userId)
+        => $"billing-status:{userId:N}";
 
     private static string NormalizePlanCode(string? planCode)
     {

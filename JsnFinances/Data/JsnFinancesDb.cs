@@ -15,6 +15,32 @@ public sealed partial class JsnFinancesDb
         _dataSource = dataSource;
     }
 
+    public async Task EnsureApplicationSchemaAsync()
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+
+        await using (var lockCommand = connection.CreateCommand())
+        {
+            lockCommand.CommandTimeout = 90;
+            lockCommand.CommandText = "select pg_advisory_lock(hashtext('jsn_finances_schema_init'))";
+            await lockCommand.ExecuteNonQueryAsync();
+        }
+
+        try
+        {
+            await EnsurePixBillingSchemaAsync(connection);
+            await EnsurePerfilSchemaAsync(connection);
+            await EnsurePreferenciasSchemaAsync(connection);
+        }
+        finally
+        {
+            await using var unlockCommand = connection.CreateCommand();
+            unlockCommand.CommandTimeout = 90;
+            unlockCommand.CommandText = "select pg_advisory_unlock(hashtext('jsn_finances_schema_init'))";
+            await unlockCommand.ExecuteNonQueryAsync();
+        }
+    }
+
     public async Task<IReadOnlyList<MovimentacaoDto>> ListMovimentacoesAsync(
         string tabela,
         Guid userId,
@@ -1161,10 +1187,10 @@ public sealed partial class JsnFinancesDb
     }
 
 
-    private async Task EnsurePerfilSchemaAsync()
+    private static async Task EnsurePerfilSchemaAsync(NpgsqlConnection connection)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
+        command.CommandTimeout = 90;
         command.CommandText = """
             create extension if not exists pgcrypto;
 
@@ -1213,10 +1239,10 @@ public sealed partial class JsnFinancesDb
         await command.ExecuteNonQueryAsync();
     }
 
-    private async Task EnsurePreferenciasSchemaAsync()
+    private static async Task EnsurePreferenciasSchemaAsync(NpgsqlConnection connection)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
+        command.CommandTimeout = 90;
         command.CommandText = """
             create extension if not exists pgcrypto;
 
@@ -1285,8 +1311,6 @@ public sealed partial class JsnFinancesDb
 
     public async Task<PerfilDto?> GetPerfilAsync(Guid userId)
     {
-        await EnsurePerfilSchemaAsync();
-
         await using var connection = await _dataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1312,8 +1336,6 @@ public sealed partial class JsnFinancesDb
 
     public async Task<PerfilDto> UpsertPerfilAsync(Guid userId, PerfilRequest request)
     {
-        await EnsurePerfilSchemaAsync();
-
         await using var connection = await _dataSource.OpenConnectionAsync();
         var hasLegacyIdColumn = await ColumnExistsAsync(connection, "perfis", "id");
 
@@ -1359,7 +1381,6 @@ public sealed partial class JsnFinancesDb
 
     public async Task<PreferenciasUsuarioDto> GetPreferenciasAsync(Guid userId)
     {
-        await EnsurePreferenciasSchemaAsync();
         await EnsurePreferenciasAsync(userId, null);
 
         await using var connection = await _dataSource.OpenConnectionAsync();
@@ -1378,7 +1399,6 @@ public sealed partial class JsnFinancesDb
 
     public async Task<PreferenciasUsuarioDto> UpsertPreferenciasAsync(Guid userId, PreferenciasUsuarioRequest request)
     {
-        await EnsurePreferenciasSchemaAsync();
         await EnsurePreferenciasAsync(userId, request);
         return await GetPreferenciasAsync(userId);
     }

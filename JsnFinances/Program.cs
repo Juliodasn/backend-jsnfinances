@@ -10,6 +10,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<IUserContext, SupabaseJwtUserContext>();
 builder.Services.AddScoped<JsnFinancesDb>();
 builder.Services.AddScoped<JsnFinancesRulesService>();
@@ -47,6 +48,14 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+var initializeSchemaOnStartup = builder.Configuration.GetValue("Schema:InitializeOnStartup", false);
+if (initializeSchemaOnStartup)
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<JsnFinancesDb>();
+    await db.EnsureApplicationSchemaAsync();
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -105,6 +114,8 @@ app.Use(async (context, next) =>
         });
     }
 });
+
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
 app.MapBillingApi();
 app.MapAdminApi();

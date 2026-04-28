@@ -292,5 +292,14 @@ api.MapGet("/visao-anual", async (int? ano, HttpContext ctx, IUserContext userCo
 
         api.MapGet("/calendario/movimentacoes", async (int? ano, int? mes, DateOnly? dataInicio, DateOnly? dataFim, HttpContext ctx, IUserContext userContext, JsnFinancesRulesService rules) =>
             Results.Ok(await rules.CriarCalendarioMensalAsync(userContext.GetUserId(ctx), ano, mes, dataInicio, dataFim)));
+
+        api.MapGet("/cartoes-credito/snapshot", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
+            Results.Ok(await db.GetCreditCardsSnapshotAsync(userContext.GetUserId(ctx))));
+
+        api.MapPut("/cartoes-credito/snapshot", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, CreditCardsSnapshotRequest request) =>
+        {
+            await db.SaveCreditCardsSnapshotAsync(userContext.GetUserId(ctx), request);
+            return Results.NoContent();
+        });
     }
 }

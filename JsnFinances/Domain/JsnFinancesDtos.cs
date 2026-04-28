@@ -633,3 +633,144 @@ public sealed record RelatoriosOverviewDto(
     [property: JsonPropertyName("annual_rows")] IReadOnlyList<VisaoAnualMesDto> AnnualRows,
     [property: JsonPropertyName("donut_total")] decimal DonutTotal
 );
+
+public sealed record CreditCardsSnapshotDto(
+    [property: JsonPropertyName("cards")] IReadOnlyList<CreditCardDto> Cards,
+    [property: JsonPropertyName("purchases")] IReadOnlyList<CreditCardPurchaseDto> Purchases,
+    [property: JsonPropertyName("paidInvoices")] IReadOnlyList<CreditCardPaidInvoiceDto> PaidInvoices,
+    [property: JsonPropertyName("recurringRules")] IReadOnlyList<CreditCardRecurringPurchaseDto> RecurringRules,
+    [property: JsonPropertyName("paymentRecords")] IReadOnlyList<CreditCardPaymentRecordDto> PaymentRecords,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+);
+
+public sealed record CreditCardsSnapshotRequest(
+    [property: JsonPropertyName("cards")] IReadOnlyList<CreditCardRequest>? Cards,
+    [property: JsonPropertyName("purchases")] IReadOnlyList<CreditCardPurchaseRequest>? Purchases,
+    [property: JsonPropertyName("paidInvoices")] IReadOnlyList<CreditCardPaidInvoiceRequest>? PaidInvoices,
+    [property: JsonPropertyName("recurringRules")] IReadOnlyList<CreditCardRecurringPurchaseRequest>? RecurringRules,
+    [property: JsonPropertyName("paymentRecords")] IReadOnlyList<CreditCardPaymentRecordRequest>? PaymentRecords
+);
+
+public sealed record CreditCardDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("nome")] string Nome,
+    [property: JsonPropertyName("bandeira")] string Bandeira,
+    [property: JsonPropertyName("limite")] decimal Limite,
+    [property: JsonPropertyName("diaFechamento")] int DiaFechamento,
+    [property: JsonPropertyName("diaVencimento")] int DiaVencimento,
+    [property: JsonPropertyName("cor")] string Cor,
+    [property: JsonPropertyName("portadores")] string[] Portadores,
+    [property: JsonPropertyName("pagamentoAutomatico")] bool PagamentoAutomatico,
+    [property: JsonPropertyName("idContaPagamento")] Guid? IdContaPagamento,
+    [property: JsonPropertyName("contaPagamentoNome")] string? ContaPagamentoNome,
+    [property: JsonPropertyName("ativo")] bool Ativo,
+    [property: JsonPropertyName("criadoEm")] string CriadoEm
+);
+
+public sealed record CreditCardRequest(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("nome")] string Nome,
+    [property: JsonPropertyName("bandeira")] string? Bandeira,
+    [property: JsonPropertyName("limite")] decimal Limite,
+    [property: JsonPropertyName("diaFechamento")] int DiaFechamento,
+    [property: JsonPropertyName("diaVencimento")] int DiaVencimento,
+    [property: JsonPropertyName("cor")] string? Cor,
+    [property: JsonPropertyName("portadores")] string[]? Portadores,
+    [property: JsonPropertyName("pagamentoAutomatico")] bool? PagamentoAutomatico,
+    [property: JsonPropertyName("idContaPagamento")] Guid? IdContaPagamento,
+    [property: JsonPropertyName("contaPagamentoNome")] string? ContaPagamentoNome,
+    [property: JsonPropertyName("ativo")] bool Ativo,
+    [property: JsonPropertyName("criadoEm")] string? CriadoEm
+);
+
+public sealed record CreditCardPurchaseDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("descricao")] string Descricao,
+    [property: JsonPropertyName("categoria")] string Categoria,
+    [property: JsonPropertyName("dataCompra")] string DataCompra,
+    [property: JsonPropertyName("valor")] decimal Valor,
+    [property: JsonPropertyName("parcelas")] int Parcelas,
+    [property: JsonPropertyName("observacao")] string? Observacao,
+    [property: JsonPropertyName("portador")] string? Portador,
+    [property: JsonPropertyName("criadoEm")] string CriadoEm
+);
+
+public sealed record CreditCardPurchaseRequest(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("descricao")] string Descricao,
+    [property: JsonPropertyName("categoria")] string? Categoria,
+    [property: JsonPropertyName("dataCompra")] string? DataCompra,
+    [property: JsonPropertyName("valor")] decimal Valor,
+    [property: JsonPropertyName("parcelas")] int Parcelas,
+    [property: JsonPropertyName("observacao")] string? Observacao,
+    [property: JsonPropertyName("portador")] string? Portador,
+    [property: JsonPropertyName("criadoEm")] string? CriadoEm
+);
+
+public sealed record CreditCardPaidInvoiceDto(
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("faturaKey")] string FaturaKey,
+    [property: JsonPropertyName("pagoEm")] string PagoEm
+);
+
+public sealed record CreditCardPaidInvoiceRequest(
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("faturaKey")] string FaturaKey,
+    [property: JsonPropertyName("pagoEm")] string? PagoEm
+);
+
+public sealed record CreditCardRecurringPurchaseDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("descricao")] string Descricao,
+    [property: JsonPropertyName("categoria")] string Categoria,
+    [property: JsonPropertyName("valor")] decimal Valor,
+    [property: JsonPropertyName("parcelas")] int Parcelas,
+    [property: JsonPropertyName("frequencia")] string Frequencia,
+    [property: JsonPropertyName("inicio")] string Inicio,
+    [property: JsonPropertyName("fim")] string? Fim,
+    [property: JsonPropertyName("observacao")] string? Observacao,
+    [property: JsonPropertyName("portador")] string? Portador,
+    [property: JsonPropertyName("ativo")] bool Ativo
+);
+
+public sealed record CreditCardRecurringPurchaseRequest(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("descricao")] string Descricao,
+    [property: JsonPropertyName("categoria")] string? Categoria,
+    [property: JsonPropertyName("valor")] decimal Valor,
+    [property: JsonPropertyName("parcelas")] int Parcelas,
+    [property: JsonPropertyName("frequencia")] string? Frequencia,
+    [property: JsonPropertyName("inicio")] string? Inicio,
+    [property: JsonPropertyName("fim")] string? Fim,
+    [property: JsonPropertyName("observacao")] string? Observacao,
+    [property: JsonPropertyName("portador")] string? Portador,
+    [property: JsonPropertyName("ativo")] bool Ativo
+);
+
+public sealed record CreditCardPaymentRecordDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("faturaKey")] string FaturaKey,
+    [property: JsonPropertyName("valorPago")] decimal ValorPago,
+    [property: JsonPropertyName("pagoEm")] string PagoEm,
+    [property: JsonPropertyName("idConta")] Guid? IdConta,
+    [property: JsonPropertyName("contaNome")] string? ContaNome,
+    [property: JsonPropertyName("idSaidaPagamento")] Guid? IdSaidaPagamento,
+    [property: JsonPropertyName("automatico")] bool Automatico
+);
+
+public sealed record CreditCardPaymentRecordRequest(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("faturaKey")] string FaturaKey,
+    [property: JsonPropertyName("valorPago")] decimal ValorPago,
+    [property: JsonPropertyName("pagoEm")] string? PagoEm,
+    [property: JsonPropertyName("idConta")] Guid? IdConta,
+    [property: JsonPropertyName("contaNome")] string? ContaNome,
+    [property: JsonPropertyName("idSaidaPagamento")] Guid? IdSaidaPagamento,
+    [property: JsonPropertyName("automatico")] bool? Automatico
+);

@@ -32,6 +32,7 @@ public sealed partial class JsnFinancesDb
             await EnsurePerfilSchemaAsync(connection);
             await EnsurePreferenciasSchemaAsync(connection);
             await EnsureOnboardingSchemaAsync(connection);
+            await EnsureCreditCardsSchemaAsync(connection);
             await EnsureAdminSchemaAsync(connection);
         }
         finally

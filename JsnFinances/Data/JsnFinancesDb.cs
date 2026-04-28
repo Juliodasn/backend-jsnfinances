@@ -1275,6 +1275,29 @@ public sealed partial class JsnFinancesDb
             update public.admin_access_logs set id = gen_random_uuid() where id is null;
             create index if not exists ix_admin_access_logs_user on public.admin_access_logs(id_usuario, accessed_at desc);
             create index if not exists ix_admin_access_logs_email on public.admin_access_logs(lower(email), accessed_at desc);
+
+            create table if not exists public.admin_user_actions (
+                id uuid primary key default gen_random_uuid(),
+                admin_user_id uuid not null,
+                admin_email text not null,
+                target_user_id uuid not null,
+                action text not null,
+                reason text null,
+                metadata jsonb not null default '{}'::jsonb,
+                created_at timestamptz not null default timezone('utc', now())
+            );
+
+            alter table public.admin_user_actions add column if not exists id uuid default gen_random_uuid();
+            alter table public.admin_user_actions add column if not exists admin_user_id uuid;
+            alter table public.admin_user_actions add column if not exists admin_email text not null default '';
+            alter table public.admin_user_actions add column if not exists target_user_id uuid;
+            alter table public.admin_user_actions add column if not exists action text not null default 'unknown';
+            alter table public.admin_user_actions add column if not exists reason text null;
+            alter table public.admin_user_actions add column if not exists metadata jsonb not null default '{}'::jsonb;
+            alter table public.admin_user_actions add column if not exists created_at timestamptz not null default timezone('utc', now());
+            update public.admin_user_actions set id = gen_random_uuid() where id is null;
+            create index if not exists ix_admin_user_actions_target on public.admin_user_actions(target_user_id, created_at desc);
+            create index if not exists ix_admin_user_actions_admin on public.admin_user_actions(admin_user_id, created_at desc);
             """;
         await command.ExecuteNonQueryAsync();
     }

@@ -488,6 +488,79 @@ public sealed record AdminOnboardingProfileDto(
 );
 
 
+
+public sealed record AdminUserBasicDetailDto(
+    [property: JsonPropertyName("id_usuario")] Guid IdUsuario,
+    [property: JsonPropertyName("nome")] string? Nome,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("last_sign_in_at")] DateTimeOffset? LastSignInAt,
+    [property: JsonPropertyName("email_confirmed")] bool EmailConfirmed,
+    [property: JsonPropertyName("is_blocked")] bool IsBlocked,
+    [property: JsonPropertyName("blocked_until")] DateTimeOffset? BlockedUntil
+);
+
+public sealed record AdminUserUsageSummaryDto(
+    [property: JsonPropertyName("total_entries")] int TotalEntries,
+    [property: JsonPropertyName("total_exits")] int TotalExits,
+    [property: JsonPropertyName("total_accounts")] int TotalAccounts,
+    [property: JsonPropertyName("total_cards")] int TotalCards,
+    [property: JsonPropertyName("total_categories")] int TotalCategories,
+    [property: JsonPropertyName("total_goals")] int TotalGoals,
+    [property: JsonPropertyName("total_moved")] decimal TotalMoved,
+    [property: JsonPropertyName("last_activity_at")] DateTimeOffset? LastActivityAt
+);
+
+public sealed record AdminOnboardingDetailDto(
+    [property: JsonPropertyName("completed")] bool Completed,
+    [property: JsonPropertyName("skipped")] bool Skipped,
+    [property: JsonPropertyName("profile_type")] string? ProfileType,
+    [property: JsonPropertyName("main_goal")] string? MainGoal,
+    [property: JsonPropertyName("financial_moment")] string? FinancialMoment,
+    [property: JsonPropertyName("biggest_challenge")] string? BiggestChallenge,
+    [property: JsonPropertyName("usage_frequency")] string? UsageFrequency,
+    [property: JsonPropertyName("updated_at")] DateTimeOffset? UpdatedAt
+);
+
+public sealed record AdminUserActionLogDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("admin_user_id")] Guid AdminUserId,
+    [property: JsonPropertyName("admin_email")] string AdminEmail,
+    [property: JsonPropertyName("target_user_id")] Guid TargetUserId,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("reason")] string? Reason,
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt
+);
+
+public sealed record AdminUserDetailDto(
+    [property: JsonPropertyName("user")] AdminUserBasicDetailDto User,
+    [property: JsonPropertyName("usage")] AdminUserUsageSummaryDto Usage,
+    [property: JsonPropertyName("subscription")] AdminSubscriptionDto? Subscription,
+    [property: JsonPropertyName("onboarding")] AdminOnboardingDetailDto Onboarding,
+    [property: JsonPropertyName("payments")] IReadOnlyList<AdminPaymentDto> Payments,
+    [property: JsonPropertyName("logs")] IReadOnlyList<AdminUserActionLogDto> Logs
+);
+
+public sealed record AdminUserActionRequest(
+    [property: JsonPropertyName("reason")] string? Reason
+);
+
+public sealed record AdminActivateAccessRequest(
+    [property: JsonPropertyName("plan_code")] string? PlanCode,
+    [property: JsonPropertyName("days")] int? Days,
+    [property: JsonPropertyName("reason")] string? Reason
+);
+
+public sealed record AdminExtendTrialRequest(
+    [property: JsonPropertyName("days")] int? Days,
+    [property: JsonPropertyName("reason")] string? Reason
+);
+
+public sealed record AdminChangePlanRequest(
+    [property: JsonPropertyName("plan_code")] string? PlanCode,
+    [property: JsonPropertyName("reason")] string? Reason
+);
+
 public sealed record DashboardComparisonDto(
     [property: JsonPropertyName("titulo")] string Titulo,
     [property: JsonPropertyName("periodo_anterior_label")] string PeriodoAnteriorLabel,

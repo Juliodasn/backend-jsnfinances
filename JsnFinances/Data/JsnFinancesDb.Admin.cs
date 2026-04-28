@@ -1,3 +1,4 @@
+using System.Text.Json;
 using JsnFinances.Api.Domain;
 using Npgsql;
 using NpgsqlTypes;
@@ -392,6 +393,357 @@ public sealed partial class JsnFinancesDb
         }
 
         return BuildPagedResult(rows, total, page, pageSize);
+    }
+
+
+    public async Task<AdminUserDetailDto?> GetAdminUserDetailsAsync(Guid userId)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            with usage_base as (
+                select
+                    @userId::uuid as id_usuario,
+                    (select count(*)::int from public.entradas where id_usuario = @userId) as total_entries,
+                    (select count(*)::int from public.saidas where id_usuario = @userId) as total_exits,
+                    (select count(*)::int from public.contas where id_usuario = @userId) as total_accounts,
+                    0::int as total_cards,
+                    (select count(*)::int from public.categorias where id_usuario = @userId) as total_categories,
+                    (select count(*)::int from public.metas where id_usuario = @userId) as total_goals,
+                    coalesce((select sum(valor) from public.entradas where id_usuario = @userId), 0)::numeric(14,2)
+                      + coalesce((select sum(valor) from public.saidas where id_usuario = @userId), 0)::numeric(14,2) as total_moved,
+                    greatest(
+                      coalesce((select max(criado_em) from public.entradas where id_usuario = @userId), '-infinity'::timestamptz),
+                      coalesce((select max(criado_em) from public.saidas where id_usuario = @userId), '-infinity'::timestamptz),
+                      coalesce((select max(criado_em) from public.contas where id_usuario = @userId), '-infinity'::timestamptz),
+                      coalesce((select max(criado_em) from public.categorias where id_usuario = @userId), '-infinity'::timestamptz),
+                      coalesce((select max(criado_em) from public.metas where id_usuario = @userId), '-infinity'::timestamptz)
+                    ) as last_activity_at
+            )
+            select
+                u.id,
+                coalesce(p.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name') as nome,
+                u.email,
+                u.created_at,
+                u.last_sign_in_at,
+                (u.email_confirmed_at is not null) as email_confirmed,
+                u.banned_until,
+                usage.total_entries,
+                usage.total_exits,
+                usage.total_accounts,
+                usage.total_cards,
+                usage.total_categories,
+                usage.total_goals,
+                usage.total_moved,
+                nullif(usage.last_activity_at, '-infinity'::timestamptz) as last_activity_at,
+                s.id as subscription_id,
+                s.status,
+                s.plan_code,
+                bp.nome as plan_name,
+                bp.valor as plan_value,
+                coalesce(s.provider, 'manual') as provider,
+                s.provider_subscription_id,
+                s.provider_payer_email,
+                s.trial_started_at,
+                s.trial_ends_at,
+                s.current_period_end,
+                s.last_synced_at,
+                s.criado_em as subscription_created_at,
+                s.atualizado_em as subscription_updated_at,
+                coalesce(o.completed, false) as onboarding_completed,
+                coalesce(o.skipped, false) as onboarding_skipped,
+                op.profile_type,
+                op.main_goal,
+                op.financial_moment,
+                op.biggest_challenge,
+                op.usage_frequency,
+                op.updated_at as onboarding_updated_at
+            from auth.users u
+            left join public.perfis p on p.id_usuario = u.id
+            left join usage_base usage on usage.id_usuario = u.id
+            left join public.user_subscriptions s on s.id_usuario = u.id
+            left join public.billing_plans bp on bp.code = s.plan_code
+            left join public.user_onboarding o on o.user_id = u.id
+            left join public.user_onboarding_profile op on op.id_usuario = u.id
+            where u.id = @userId
+            limit 1
+            """;
+        Add(command, "userId", userId, NpgsqlDbType.Uuid);
+
+        AdminUserBasicDetailDto user;
+        AdminUserUsageSummaryDto usage;
+        AdminSubscriptionDto? subscription;
+        AdminOnboardingDetailDto onboarding;
+
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            if (!await reader.ReadAsync()) return null;
+
+            var blockedUntil = ReadNullableDateTimeOffset(reader, 6);
+            user = new AdminUserBasicDetailDto(
+                reader.GetGuid(0),
+                ReadNullableString(reader, 1),
+                reader.GetString(2),
+                reader.GetFieldValue<DateTimeOffset>(3),
+                ReadNullableDateTimeOffset(reader, 4),
+                reader.GetBoolean(5),
+                blockedUntil.HasValue && blockedUntil.Value > DateTimeOffset.UtcNow,
+                blockedUntil);
+
+            usage = new AdminUserUsageSummaryDto(
+                reader.GetInt32(7),
+                reader.GetInt32(8),
+                reader.GetInt32(9),
+                reader.GetInt32(10),
+                reader.GetInt32(11),
+                reader.GetInt32(12),
+                reader.GetDecimal(13),
+                ReadNullableDateTimeOffset(reader, 14));
+
+            subscription = reader.IsDBNull(15)
+                ? null
+                : new AdminSubscriptionDto(
+                    reader.GetGuid(15),
+                    reader.GetGuid(0),
+                    ReadNullableString(reader, 1),
+                    reader.GetString(2),
+                    ReadNullableString(reader, 16) ?? "sem_assinatura",
+                    ReadNullableString(reader, 17),
+                    ReadNullableString(reader, 18),
+                    ReadNullableDecimal(reader, 19),
+                    ReadNullableString(reader, 20) ?? "manual",
+                    ReadNullableString(reader, 21),
+                    ReadNullableString(reader, 22),
+                    ReadNullableDateTimeOffset(reader, 23),
+                    ReadNullableDateTimeOffset(reader, 24),
+                    ReadNullableDateTimeOffset(reader, 25),
+                    ReadNullableDateTimeOffset(reader, 26),
+                    ReadNullableDateTimeOffset(reader, 27) ?? reader.GetFieldValue<DateTimeOffset>(3),
+                    ReadNullableDateTimeOffset(reader, 28) ?? reader.GetFieldValue<DateTimeOffset>(3));
+
+            onboarding = new AdminOnboardingDetailDto(
+                reader.GetBoolean(29),
+                reader.GetBoolean(30),
+                ReadNullableString(reader, 31),
+                ReadNullableString(reader, 32),
+                ReadNullableString(reader, 33),
+                ReadNullableString(reader, 34),
+                ReadNullableString(reader, 35),
+                ReadNullableDateTimeOffset(reader, 36));
+        }
+
+        var payments = await ListAdminPaymentsByUserAsync(connection, userId);
+        var logs = await ListAdminUserActionLogsAsync(connection, userId);
+
+        return new AdminUserDetailDto(user, usage, subscription, onboarding, payments, logs);
+    }
+
+    public async Task<bool> SetAdminUserBlockAsync(Guid adminUserId, string adminEmail, Guid targetUserId, bool blocked, string? reason)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            update auth.users
+            set banned_until = case when @blocked then timezone('utc', now()) + interval '100 years' else null end,
+                updated_at = timezone('utc', now())
+            where id = @targetUserId
+            """;
+        Add(command, "blocked", blocked);
+        Add(command, "targetUserId", targetUserId, NpgsqlDbType.Uuid);
+        var affected = await command.ExecuteNonQueryAsync();
+        if (affected > 0)
+        {
+            await InsertAdminUserActionLogAsync(connection, adminUserId, adminEmail, targetUserId, blocked ? "BLOCK_USER" : "UNBLOCK_USER", reason, new { blocked });
+        }
+        return affected > 0;
+    }
+
+    public async Task<bool> ActivateManualAccessAsync(Guid adminUserId, string adminEmail, Guid targetUserId, string? planCode, int? days, string? reason)
+    {
+        var normalizedPlan = string.IsNullOrWhiteSpace(planCode) ? "mensal" : planCode.Trim().ToLowerInvariant();
+        var normalizedDays = Math.Clamp(days ?? (normalizedPlan == "anual" ? 365 : 30), 1, 3650);
+
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            insert into public.user_subscriptions
+              (id_usuario, status, plan_code, provider, current_period_end, last_synced_at, provider_raw_payload)
+            select @targetUserId, 'active', bp.code, 'manual', timezone('utc', now()) + (@days * interval '1 day'), timezone('utc', now()), cast(@payload as jsonb)
+            from public.billing_plans bp
+            where lower(bp.code) = lower(@planCode)
+            limit 1
+            on conflict (id_usuario)
+            do update set
+              status = 'active',
+              plan_code = excluded.plan_code,
+              provider = 'manual',
+              current_period_end = excluded.current_period_end,
+              provider_raw_payload = excluded.provider_raw_payload,
+              last_synced_at = timezone('utc', now()),
+              atualizado_em = timezone('utc', now())
+            """;
+        Add(command, "targetUserId", targetUserId, NpgsqlDbType.Uuid);
+        Add(command, "planCode", normalizedPlan, NpgsqlDbType.Text);
+        Add(command, "days", normalizedDays);
+        Add(command, "payload", JsonSerializer.Serialize(new { source = "admin", action = "activate_manual_access", days = normalizedDays }), NpgsqlDbType.Text);
+        var affected = await command.ExecuteNonQueryAsync();
+        if (affected > 0)
+        {
+            await InsertAdminUserActionLogAsync(connection, adminUserId, adminEmail, targetUserId, "ACTIVATE_MANUAL_ACCESS", reason, new { plan_code = normalizedPlan, days = normalizedDays });
+        }
+        return affected > 0;
+    }
+
+    public async Task<bool> ExtendTrialAsync(Guid adminUserId, string adminEmail, Guid targetUserId, int? days, string? reason)
+    {
+        var normalizedDays = Math.Clamp(days ?? 3, 1, 365);
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            insert into public.user_subscriptions
+              (id_usuario, status, provider, trial_started_at, trial_ends_at, last_synced_at, provider_raw_payload)
+            values
+              (@targetUserId, 'trialing', 'manual', timezone('utc', now()), timezone('utc', now()) + (@days * interval '1 day'), timezone('utc', now()), cast(@payload as jsonb))
+            on conflict (id_usuario)
+            do update set
+              status = 'trialing',
+              provider = 'manual',
+              trial_started_at = coalesce(public.user_subscriptions.trial_started_at, timezone('utc', now())),
+              trial_ends_at = greatest(coalesce(public.user_subscriptions.trial_ends_at, timezone('utc', now())), timezone('utc', now())) + (@days * interval '1 day'),
+              provider_raw_payload = excluded.provider_raw_payload,
+              last_synced_at = timezone('utc', now()),
+              atualizado_em = timezone('utc', now())
+            """;
+        Add(command, "targetUserId", targetUserId, NpgsqlDbType.Uuid);
+        Add(command, "days", normalizedDays);
+        Add(command, "payload", JsonSerializer.Serialize(new { source = "admin", action = "extend_trial", days = normalizedDays }), NpgsqlDbType.Text);
+        var affected = await command.ExecuteNonQueryAsync();
+        if (affected > 0)
+        {
+            await InsertAdminUserActionLogAsync(connection, adminUserId, adminEmail, targetUserId, "EXTEND_TRIAL", reason, new { days = normalizedDays });
+        }
+        return affected > 0;
+    }
+
+    public async Task<bool> ChangeUserPlanAsync(Guid adminUserId, string adminEmail, Guid targetUserId, string? planCode, string? reason)
+    {
+        var normalizedPlan = string.IsNullOrWhiteSpace(planCode) ? "mensal" : planCode.Trim().ToLowerInvariant();
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            with plan as (
+                select code,
+                       case when frequency_type = 'months' then greatest(frequency, 1) * 30 else greatest(frequency, 1) end as duration_days
+                from public.billing_plans
+                where ativo = true and lower(code) = lower(@planCode)
+                limit 1
+            )
+            insert into public.user_subscriptions
+              (id_usuario, status, plan_code, provider, current_period_end, last_synced_at, provider_raw_payload)
+            select @targetUserId, 'active', code, 'manual', timezone('utc', now()) + (duration_days * interval '1 day'), timezone('utc', now()), cast(@payload as jsonb)
+            from plan
+            on conflict (id_usuario)
+            do update set
+              plan_code = excluded.plan_code,
+              provider = 'manual',
+              status = case when public.user_subscriptions.status in ('active', 'trialing', 'pending') then public.user_subscriptions.status else 'active' end,
+              current_period_end = coalesce(public.user_subscriptions.current_period_end, excluded.current_period_end),
+              provider_raw_payload = excluded.provider_raw_payload,
+              last_synced_at = timezone('utc', now()),
+              atualizado_em = timezone('utc', now())
+            """;
+        Add(command, "targetUserId", targetUserId, NpgsqlDbType.Uuid);
+        Add(command, "planCode", normalizedPlan, NpgsqlDbType.Text);
+        Add(command, "payload", JsonSerializer.Serialize(new { source = "admin", action = "change_plan", plan_code = normalizedPlan }), NpgsqlDbType.Text);
+        var affected = await command.ExecuteNonQueryAsync();
+        if (affected > 0)
+        {
+            await InsertAdminUserActionLogAsync(connection, adminUserId, adminEmail, targetUserId, "CHANGE_PLAN", reason, new { plan_code = normalizedPlan });
+        }
+        return affected > 0;
+    }
+
+    public async Task<bool> CancelAdminUserSubscriptionAsync(Guid adminUserId, string adminEmail, Guid targetUserId, string? reason)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            update public.user_subscriptions
+            set status = 'canceled',
+                current_period_end = timezone('utc', now()),
+                last_synced_at = timezone('utc', now()),
+                atualizado_em = timezone('utc', now())
+            where id_usuario = @targetUserId
+            """;
+        Add(command, "targetUserId", targetUserId, NpgsqlDbType.Uuid);
+        var affected = await command.ExecuteNonQueryAsync();
+        if (affected > 0)
+        {
+            await InsertAdminUserActionLogAsync(connection, adminUserId, adminEmail, targetUserId, "CANCEL_SUBSCRIPTION", reason, null);
+        }
+        return affected > 0;
+    }
+
+    private static async Task<IReadOnlyList<AdminPaymentDto>> ListAdminPaymentsByUserAsync(NpgsqlConnection connection, Guid userId)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select p.id, p.id_usuario,
+                   coalesce(pf.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name') as nome,
+                   u.email, p.provider, p.provider_payment_id, p.provider_subscription_id, p.status, p.amount, p.currency, p.paid_at, p.criado_em
+            from public.payments p
+            left join auth.users u on u.id = p.id_usuario
+            left join public.perfis pf on pf.id_usuario = p.id_usuario
+            where p.id_usuario = @userId
+            order by coalesce(p.paid_at, p.criado_em) desc
+            limit 12
+            """;
+        Add(command, "userId", userId, NpgsqlDbType.Uuid);
+
+        var rows = new List<AdminPaymentDto>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(new AdminPaymentDto(reader.GetGuid(0), reader.GetGuid(1), ReadNullableString(reader, 2), ReadNullableString(reader, 3), reader.GetString(4), ReadNullableString(reader, 5), ReadNullableString(reader, 6), ReadNullableString(reader, 7), ReadNullableDecimal(reader, 8), ReadNullableString(reader, 9), ReadNullableDateTimeOffset(reader, 10), reader.GetFieldValue<DateTimeOffset>(11)));
+        }
+        return rows;
+    }
+
+    private static async Task<IReadOnlyList<AdminUserActionLogDto>> ListAdminUserActionLogsAsync(NpgsqlConnection connection, Guid targetUserId)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, admin_user_id, admin_email, target_user_id, action, reason, created_at
+            from public.admin_user_actions
+            where target_user_id = @targetUserId
+            order by created_at desc
+            limit 20
+            """;
+        Add(command, "targetUserId", targetUserId, NpgsqlDbType.Uuid);
+
+        var rows = new List<AdminUserActionLogDto>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(new AdminUserActionLogDto(reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetGuid(3), reader.GetString(4), ReadNullableString(reader, 5), reader.GetFieldValue<DateTimeOffset>(6)));
+        }
+        return rows;
+    }
+
+    private static async Task InsertAdminUserActionLogAsync(NpgsqlConnection connection, Guid adminUserId, string adminEmail, Guid targetUserId, string action, string? reason, object? metadata)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            insert into public.admin_user_actions (admin_user_id, admin_email, target_user_id, action, reason, metadata)
+            values (@adminUserId, @adminEmail, @targetUserId, @action, @reason, @metadata::jsonb)
+            """;
+        Add(command, "adminUserId", adminUserId, NpgsqlDbType.Uuid);
+        Add(command, "adminEmail", adminEmail, NpgsqlDbType.Text);
+        Add(command, "targetUserId", targetUserId, NpgsqlDbType.Uuid);
+        Add(command, "action", action, NpgsqlDbType.Text);
+        Add(command, "reason", NullIfWhiteSpace(reason), NpgsqlDbType.Text);
+        Add(command, "metadata", JsonSerializer.Serialize(metadata ?? new { }), NpgsqlDbType.Text);
+        await command.ExecuteNonQueryAsync();
     }
 
     private static PagedResultDto<T> BuildPagedResult<T>(IReadOnlyList<T> items, int total, int page, int pageSize)

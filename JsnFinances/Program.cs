@@ -49,7 +49,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-var initializeSchemaOnStartup = builder.Configuration.GetValue("Schema:InitializeOnStartup", false);
+var initializeSchemaOnStartup = builder.Configuration.GetValue("Schema:InitializeOnStartup", true);
 if (initializeSchemaOnStartup)
 {
     await using var scope = app.Services.CreateAsyncScope();

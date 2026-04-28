@@ -1,5 +1,6 @@
 using JsnFinances.Api.Domain;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace JsnFinances.Api.Data;
 
@@ -148,8 +149,8 @@ public sealed partial class JsnFinancesDb
             order by created_at desc
             limit @limit offset @offset
             """;
-        Add(command, "search", NullIfWhiteSpace(search));
-        Add(command, "status", NullIfWhiteSpace(status));
+        Add(command, "search", NullIfWhiteSpace(search), NpgsqlDbType.Text);
+        Add(command, "status", NullIfWhiteSpace(status), NpgsqlDbType.Text);
         Add(command, "limit", pageSize);
         Add(command, "offset", offset);
 
@@ -190,8 +191,8 @@ public sealed partial class JsnFinancesDb
             order by s.atualizado_em desc
             limit @limit offset @offset
             """;
-        Add(command, "search", NullIfWhiteSpace(search));
-        Add(command, "status", NullIfWhiteSpace(status));
+        Add(command, "search", NullIfWhiteSpace(search), NpgsqlDbType.Text);
+        Add(command, "status", NullIfWhiteSpace(status), NpgsqlDbType.Text);
         Add(command, "limit", pageSize);
         Add(command, "offset", offset);
 
@@ -227,8 +228,8 @@ public sealed partial class JsnFinancesDb
             order by coalesce(p.paid_at, p.criado_em) desc
             limit @limit offset @offset
             """;
-        Add(command, "search", NullIfWhiteSpace(search));
-        Add(command, "status", NullIfWhiteSpace(status));
+        Add(command, "search", NullIfWhiteSpace(search), NpgsqlDbType.Text);
+        Add(command, "status", NullIfWhiteSpace(status), NpgsqlDbType.Text);
         Add(command, "limit", pageSize);
         Add(command, "offset", offset);
 
@@ -259,7 +260,7 @@ public sealed partial class JsnFinancesDb
             order by processado_em desc
             limit @limit offset @offset
             """;
-        Add(command, "search", NullIfWhiteSpace(search));
+        Add(command, "search", NullIfWhiteSpace(search), NpgsqlDbType.Text);
         Add(command, "limit", pageSize);
         Add(command, "offset", offset);
 
@@ -365,7 +366,7 @@ public sealed partial class JsnFinancesDb
             order by coalesce(op.updated_at, u.created_at) desc
             limit @limit offset @offset
             """;
-        Add(command, "search", NullIfWhiteSpace(search));
+        Add(command, "search", NullIfWhiteSpace(search), NpgsqlDbType.Text);
         Add(command, "limit", pageSize);
         Add(command, "offset", offset);
 

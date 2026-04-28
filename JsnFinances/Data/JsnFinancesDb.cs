@@ -31,6 +31,8 @@ public sealed partial class JsnFinancesDb
             await EnsurePixBillingSchemaAsync(connection);
             await EnsurePerfilSchemaAsync(connection);
             await EnsurePreferenciasSchemaAsync(connection);
+            await EnsureOnboardingSchemaAsync(connection);
+            await EnsureAdminSchemaAsync(connection);
         }
         finally
         {
@@ -1186,6 +1188,96 @@ public sealed partial class JsnFinancesDb
         Add(command, "icone", NullIfWhiteSpace(request.Icone) ?? "plane");
     }
 
+
+    private static async Task EnsureOnboardingSchemaAsync(NpgsqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 90;
+        command.CommandText = """
+            create extension if not exists pgcrypto;
+
+            create table if not exists public.user_onboarding (
+                id uuid primary key default gen_random_uuid(),
+                user_id uuid not null unique,
+                current_step integer not null default 1,
+                completed boolean not null default false,
+                skipped boolean not null default false,
+                completed_at timestamptz null,
+                created_at timestamptz not null default timezone('utc', now()),
+                updated_at timestamptz not null default timezone('utc', now())
+            );
+
+            alter table public.user_onboarding add column if not exists id uuid default gen_random_uuid();
+            alter table public.user_onboarding add column if not exists user_id uuid;
+            alter table public.user_onboarding add column if not exists current_step integer not null default 1;
+            alter table public.user_onboarding add column if not exists completed boolean not null default false;
+            alter table public.user_onboarding add column if not exists skipped boolean not null default false;
+            alter table public.user_onboarding add column if not exists completed_at timestamptz null;
+            alter table public.user_onboarding add column if not exists created_at timestamptz not null default timezone('utc', now());
+            alter table public.user_onboarding add column if not exists updated_at timestamptz not null default timezone('utc', now());
+            update public.user_onboarding set id = gen_random_uuid() where id is null;
+            create unique index if not exists ux_user_onboarding_user_id on public.user_onboarding(user_id);
+
+            create table if not exists public.user_onboarding_profile (
+                id uuid primary key default gen_random_uuid(),
+                id_usuario uuid not null unique,
+                profile_type text not null default 'Pessoal',
+                main_goal text not null default 'Controlar gastos',
+                financial_moment text not null default 'Quero me organizar melhor',
+                biggest_challenge text not null default 'Cartão de crédito',
+                usage_frequency text not null default 'Algumas vezes por semana',
+                created_at timestamptz not null default timezone('utc', now()),
+                updated_at timestamptz not null default timezone('utc', now())
+            );
+
+            alter table public.user_onboarding_profile add column if not exists id uuid default gen_random_uuid();
+            alter table public.user_onboarding_profile add column if not exists id_usuario uuid;
+            alter table public.user_onboarding_profile add column if not exists profile_type text not null default 'Pessoal';
+            alter table public.user_onboarding_profile add column if not exists main_goal text not null default 'Controlar gastos';
+            alter table public.user_onboarding_profile add column if not exists financial_moment text not null default 'Quero me organizar melhor';
+            alter table public.user_onboarding_profile add column if not exists biggest_challenge text not null default 'Cartão de crédito';
+            alter table public.user_onboarding_profile add column if not exists usage_frequency text not null default 'Algumas vezes por semana';
+            alter table public.user_onboarding_profile add column if not exists created_at timestamptz not null default timezone('utc', now());
+            alter table public.user_onboarding_profile add column if not exists updated_at timestamptz not null default timezone('utc', now());
+            update public.user_onboarding_profile set id = gen_random_uuid() where id is null;
+            create unique index if not exists ux_user_onboarding_profile_id_usuario on public.user_onboarding_profile(id_usuario);
+            create index if not exists ix_user_onboarding_profile_updated_at on public.user_onboarding_profile(updated_at desc);
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task EnsureAdminSchemaAsync(NpgsqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 90;
+        command.CommandText = """
+            create extension if not exists pgcrypto;
+
+            create table if not exists public.admin_access_logs (
+                id uuid primary key default gen_random_uuid(),
+                id_usuario uuid not null,
+                email text not null,
+                path text not null,
+                method text not null,
+                ip_address text null,
+                user_agent text null,
+                accessed_at timestamptz not null default timezone('utc', now())
+            );
+
+            alter table public.admin_access_logs add column if not exists id uuid default gen_random_uuid();
+            alter table public.admin_access_logs add column if not exists id_usuario uuid;
+            alter table public.admin_access_logs add column if not exists email text not null default '';
+            alter table public.admin_access_logs add column if not exists path text not null default '';
+            alter table public.admin_access_logs add column if not exists method text not null default 'GET';
+            alter table public.admin_access_logs add column if not exists ip_address text null;
+            alter table public.admin_access_logs add column if not exists user_agent text null;
+            alter table public.admin_access_logs add column if not exists accessed_at timestamptz not null default timezone('utc', now());
+            update public.admin_access_logs set id = gen_random_uuid() where id is null;
+            create index if not exists ix_admin_access_logs_user on public.admin_access_logs(id_usuario, accessed_at desc);
+            create index if not exists ix_admin_access_logs_email on public.admin_access_logs(lower(email), accessed_at desc);
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
 
     private static async Task EnsurePerfilSchemaAsync(NpgsqlConnection connection)
     {

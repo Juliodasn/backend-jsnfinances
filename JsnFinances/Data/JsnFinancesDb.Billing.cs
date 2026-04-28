@@ -569,6 +569,62 @@ public sealed partial class JsnFinancesDb
                 updated_at timestamptz not null default timezone('utc', now())
             );
 
+            alter table public.billing_plans add column if not exists code text;
+            alter table public.billing_plans add column if not exists nome text not null default '';
+            alter table public.billing_plans add column if not exists descricao text not null default '';
+            alter table public.billing_plans add column if not exists valor numeric(12,2) not null default 0;
+            alter table public.billing_plans add column if not exists moeda text not null default 'BRL';
+            alter table public.billing_plans add column if not exists frequency integer not null default 1;
+            alter table public.billing_plans add column if not exists frequency_type text not null default 'days';
+            alter table public.billing_plans add column if not exists ativo boolean not null default true;
+            alter table public.billing_plans add column if not exists destaque boolean not null default false;
+            alter table public.billing_plans add column if not exists ordem integer not null default 0;
+            alter table public.billing_plans add column if not exists criado_em timestamptz not null default timezone('utc', now());
+            alter table public.billing_plans add column if not exists atualizado_em timestamptz not null default timezone('utc', now());
+
+            alter table public.user_subscriptions add column if not exists id uuid default gen_random_uuid();
+            alter table public.user_subscriptions add column if not exists id_usuario uuid;
+            alter table public.user_subscriptions add column if not exists status text not null default 'expired';
+            alter table public.user_subscriptions add column if not exists trial_started_at timestamptz;
+            alter table public.user_subscriptions add column if not exists trial_ends_at timestamptz;
+            alter table public.user_subscriptions add column if not exists current_period_end timestamptz;
+            alter table public.user_subscriptions add column if not exists plan_code text;
+            alter table public.user_subscriptions add column if not exists provider text not null default 'mercadopago';
+            alter table public.user_subscriptions add column if not exists provider_customer_id text;
+            alter table public.user_subscriptions add column if not exists provider_subscription_id text;
+            alter table public.user_subscriptions add column if not exists provider_payer_email text;
+            alter table public.user_subscriptions add column if not exists init_point text;
+            alter table public.user_subscriptions add column if not exists provider_raw_payload jsonb not null default '{}'::jsonb;
+            alter table public.user_subscriptions add column if not exists last_synced_at timestamptz;
+            alter table public.user_subscriptions add column if not exists criado_em timestamptz not null default timezone('utc', now());
+            alter table public.user_subscriptions add column if not exists atualizado_em timestamptz not null default timezone('utc', now());
+            update public.user_subscriptions set id = gen_random_uuid() where id is null;
+
+            alter table public.payments add column if not exists id uuid default gen_random_uuid();
+            alter table public.payments add column if not exists id_usuario uuid;
+            alter table public.payments add column if not exists subscription_id uuid;
+            alter table public.payments add column if not exists provider text not null default 'mercadopago';
+            alter table public.payments add column if not exists provider_payment_id text;
+            alter table public.payments add column if not exists provider_subscription_id text;
+            alter table public.payments add column if not exists status text;
+            alter table public.payments add column if not exists amount numeric(12,2);
+            alter table public.payments add column if not exists currency text default 'BRL';
+            alter table public.payments add column if not exists paid_at timestamptz;
+            alter table public.payments add column if not exists raw_payload jsonb not null default '{}'::jsonb;
+            alter table public.payments add column if not exists criado_em timestamptz not null default timezone('utc', now());
+            update public.payments set id = gen_random_uuid() where id is null;
+
+            alter table public.billing_events add column if not exists id uuid default gen_random_uuid();
+            alter table public.billing_events add column if not exists provider text not null default 'mercadopago';
+            alter table public.billing_events add column if not exists event_type text not null default 'unknown';
+            alter table public.billing_events add column if not exists event_action text;
+            alter table public.billing_events add column if not exists resource_id text;
+            alter table public.billing_events add column if not exists request_id text;
+            alter table public.billing_events add column if not exists signature_valid boolean not null default false;
+            alter table public.billing_events add column if not exists payload jsonb not null default '{}'::jsonb;
+            alter table public.billing_events add column if not exists processado_em timestamptz not null default timezone('utc', now());
+            update public.billing_events set id = gen_random_uuid() where id is null;
+
             create index if not exists ix_billing_pix_charges_user on public.billing_pix_charges(user_id);
             create index if not exists ix_billing_pix_charges_payment on public.billing_pix_charges(mercado_pago_payment_id);
             create index if not exists ix_billing_pix_charges_status on public.billing_pix_charges(payment_status);

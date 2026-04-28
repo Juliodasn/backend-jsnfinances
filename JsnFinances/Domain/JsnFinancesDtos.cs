@@ -580,6 +580,16 @@ public sealed record DashboardSmartInsightDto(
     [property: JsonPropertyName("tone")] string Tone
 );
 
+public sealed record SaldoTotalMensalDto(
+    [property: JsonPropertyName("ano")] int Ano,
+    [property: JsonPropertyName("mes")] int Mes,
+    [property: JsonPropertyName("saldo_total")] decimal SaldoTotal,
+    [property: JsonPropertyName("entradas_mes")] decimal EntradasMes,
+    [property: JsonPropertyName("saidas_mes")] decimal SaidasMes,
+    [property: JsonPropertyName("variacao_mes")] decimal VariacaoMes,
+    [property: JsonPropertyName("tem_dados")] bool TemDados
+);
+
 public sealed record DashboardHomeDto(
     [property: JsonPropertyName("resumo")] DashboardResumoDto Resumo,
     [property: JsonPropertyName("resumo_anterior")] DashboardResumoDto ResumoAnterior,
@@ -588,6 +598,7 @@ public sealed record DashboardHomeDto(
     [property: JsonPropertyName("ultimas_entradas")] PagedResultDto<MovimentacaoDto> UltimasEntradas,
     [property: JsonPropertyName("ultimas_saidas")] PagedResultDto<MovimentacaoDto> UltimasSaidas,
     [property: JsonPropertyName("saldo_mensal")] IReadOnlyList<VisaoAnualMesDto> SaldoMensal,
+    [property: JsonPropertyName("saldo_total_mensal")] IReadOnlyList<SaldoTotalMensalDto> SaldoTotalMensal,
     [property: JsonPropertyName("smart_insights")] IReadOnlyList<DashboardSmartInsightDto> SmartInsights,
     [property: JsonPropertyName("insight_periodo_label")] string InsightPeriodoLabel
 );

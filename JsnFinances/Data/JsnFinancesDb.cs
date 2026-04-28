@@ -995,6 +995,116 @@ public sealed partial class JsnFinancesDb
         return rows;
     }
 
+    public async Task<IReadOnlyList<SaldoTotalMensalDto>> ListSaldoTotalMensalAsync(Guid userId, int ano)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            with months as (
+                select
+                    gs::int as mes,
+                    make_date(@ano, gs::int, 1)::date as inicio_mes,
+                    (make_date(@ano, gs::int, 1) + interval '1 month' - interval '1 day')::date as fim_mes
+                from generate_series(1, 12) as gs
+            ),
+            contas_ativas as (
+                select id, saldo_inicial
+                from public.contas
+                where id_usuario = @userId
+                  and coalesce(ativo, true) = true
+            )
+            select
+                @ano::int as ano,
+                m.mes,
+                (
+                    coalesce((select sum(c.saldo_inicial) from contas_ativas c), 0)
+                    + coalesce((
+                        select sum(e.valor)
+                        from public.entradas e
+                        join contas_ativas c on c.id = e.id_conta
+                        where e.id_usuario = @userId
+                          and e.data_movimentacao <= m.fim_mes
+                    ), 0)
+                    - coalesce((
+                        select sum(s.valor)
+                        from public.saidas s
+                        join contas_ativas c on c.id = s.id_conta
+                        where s.id_usuario = @userId
+                          and s.data_movimentacao <= m.fim_mes
+                    ), 0)
+                    + coalesce((
+                        select sum(t.valor)
+                        from public.transferencias_contas t
+                        join contas_ativas c on c.id = t.id_conta_destino
+                        where t.id_usuario = @userId
+                          and t.data_transferencia <= m.fim_mes
+                    ), 0)
+                    - coalesce((
+                        select sum(t.valor)
+                        from public.transferencias_contas t
+                        join contas_ativas c on c.id = t.id_conta_origem
+                        where t.id_usuario = @userId
+                          and t.data_transferencia <= m.fim_mes
+                    ), 0)
+                ) as saldo_total,
+                coalesce((
+                    select sum(e.valor)
+                    from public.entradas e
+                    join contas_ativas c on c.id = e.id_conta
+                    where e.id_usuario = @userId
+                      and e.data_movimentacao between m.inicio_mes and m.fim_mes
+                ), 0) as entradas_mes,
+                coalesce((
+                    select sum(s.valor)
+                    from public.saidas s
+                    join contas_ativas c on c.id = s.id_conta
+                    where s.id_usuario = @userId
+                      and s.data_movimentacao between m.inicio_mes and m.fim_mes
+                ), 0) as saidas_mes,
+                (
+                    coalesce((
+                        select sum(e.valor)
+                        from public.entradas e
+                        join contas_ativas c on c.id = e.id_conta
+                        where e.id_usuario = @userId
+                          and e.data_movimentacao between m.inicio_mes and m.fim_mes
+                    ), 0)
+                    - coalesce((
+                        select sum(s.valor)
+                        from public.saidas s
+                        join contas_ativas c on c.id = s.id_conta
+                        where s.id_usuario = @userId
+                          and s.data_movimentacao between m.inicio_mes and m.fim_mes
+                    ), 0)
+                ) as variacao_mes,
+                (
+                    exists(select 1 from contas_ativas)
+                    and m.inicio_mes <= @hoje
+                ) as tem_dados
+            from months m
+            order by m.mes
+            """;
+        Add(command, "userId", userId);
+        Add(command, "ano", ano);
+        Add(command, "hoje", DateOnly.FromDateTime(DateTime.UtcNow), NpgsqlDbType.Date);
+
+        var rows = new List<SaldoTotalMensalDto>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(new SaldoTotalMensalDto(
+                reader.GetInt32(0),
+                reader.GetInt32(1),
+                reader.GetDecimal(2),
+                reader.GetDecimal(3),
+                reader.GetDecimal(4),
+                reader.GetDecimal(5),
+                reader.GetBoolean(6)));
+        }
+
+        return rows;
+    }
+
     public async Task DeleteContaAsync(Guid userId, Guid id)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();

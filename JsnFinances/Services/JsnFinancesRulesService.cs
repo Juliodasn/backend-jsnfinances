@@ -324,6 +324,7 @@ public sealed class JsnFinancesRulesService
         var ultimasEntradasTask = _db.ListMovimentacoesPagedAsync("entradas", userId, dataInicio, dataFim, 1, 5);
         var ultimasSaidasTask = _db.ListMovimentacoesPagedAsync("saidas", userId, dataInicio, dataFim, 1, 5);
         var saldoMensalTask = CriarVisaoAnualAsync(userId, dataInicio.Year);
+        var saldoTotalMensalTask = _db.ListSaldoTotalMensalAsync(userId, dataInicio.Year);
         var contasTask = _db.ListContasSaldoAsync(userId);
         var backendInsightsTask = CriarInsightsAsync(userId, dataInicio, dataFim);
         var currentEntriesTask = _db.ListMovimentacoesAsync("entradas", userId, dataInicio, dataFim, 2000, 0);
@@ -338,6 +339,7 @@ public sealed class JsnFinancesRulesService
             ultimasEntradasTask,
             ultimasSaidasTask,
             saldoMensalTask,
+            saldoTotalMensalTask,
             contasTask,
             backendInsightsTask,
             currentEntriesTask,
@@ -349,6 +351,7 @@ public sealed class JsnFinancesRulesService
         var resumoAtual = await resumoAtualTask;
         var resumoAnterior = await resumoAnteriorTask;
         var saldoMensal = await saldoMensalTask;
+        var saldoTotalMensal = await saldoTotalMensalTask;
         var smartInsights = BuildDashboardSmartInsights(
             await backendInsightsTask,
             await currentEntriesTask,
@@ -370,6 +373,7 @@ public sealed class JsnFinancesRulesService
             await ultimasEntradasTask,
             await ultimasSaidasTask,
             saldoMensal,
+            saldoTotalMensal,
             smartInsights,
             BuildInsightPeriodLabel(dataInicio, dataFim));
     }

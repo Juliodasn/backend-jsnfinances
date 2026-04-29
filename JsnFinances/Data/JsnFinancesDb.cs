@@ -1041,30 +1041,8 @@ public sealed partial class JsnFinancesDb
                     (m.inicio_mes <= @hoje) as mes_visivel,
                     (
                         exists(select 1 from contas_ativas c where c.criado_em <= m.fim_mes)
-                        or exists(
-                            select 1
-                            from public.entradas e
-                            join contas_ativas c on c.id = e.id_conta
-                            where e.id_usuario = @userId
-                              and e.data_movimentacao <= m.fim_mes
-                        )
-                        or exists(
-                            select 1
-                            from public.saidas s
-                            join contas_ativas c on c.id = s.id_conta
-                            where s.id_usuario = @userId
-                              and s.data_movimentacao <= m.fim_mes
-                        )
-                        or exists(
-                            select 1
-                            from public.transferencias_contas tr
-                            where tr.id_usuario = @userId
-                              and tr.data_transferencia <= m.fim_mes
-                              and (
-                                  exists(select 1 from contas_ativas c where c.id = tr.id_conta_origem)
-                                  or exists(select 1 from contas_ativas c where c.id = tr.id_conta_destino)
-                              )
-                        )
+                        or exists(select 1 from public.entradas e where e.id_usuario = @userId and e.data_movimentacao <= m.fim_mes)
+                        or exists(select 1 from public.saidas s where s.id_usuario = @userId and s.data_movimentacao <= m.fim_mes)
                     ) as tem_historico,
                     (
                         coalesce((
@@ -1075,30 +1053,14 @@ public sealed partial class JsnFinancesDb
                         + coalesce((
                             select sum(e.valor)
                             from public.entradas e
-                            join contas_ativas c on c.id = e.id_conta
                             where e.id_usuario = @userId
                               and e.data_movimentacao <= m.fim_mes
                         ), 0)
                         - coalesce((
                             select sum(s.valor)
                             from public.saidas s
-                            join contas_ativas c on c.id = s.id_conta
                             where s.id_usuario = @userId
                               and s.data_movimentacao <= m.fim_mes
-                        ), 0)
-                        + coalesce((
-                            select sum(tr.valor)
-                            from public.transferencias_contas tr
-                            join contas_ativas c on c.id = tr.id_conta_destino
-                            where tr.id_usuario = @userId
-                              and tr.data_transferencia <= m.fim_mes
-                        ), 0)
-                        - coalesce((
-                            select sum(tr.valor)
-                            from public.transferencias_contas tr
-                            join contas_ativas c on c.id = tr.id_conta_origem
-                            where tr.id_usuario = @userId
-                              and tr.data_transferencia <= m.fim_mes
                         ), 0)
                     ) as saldo_total
                 from months m
@@ -1110,14 +1072,12 @@ public sealed partial class JsnFinancesDb
                 case when t.mes_visivel then coalesce((
                     select sum(e.valor)
                     from public.entradas e
-                    join contas_ativas c on c.id = e.id_conta
                     where e.id_usuario = @userId
                       and e.data_movimentacao between t.inicio_mes and t.fim_mes
                 ), 0) else 0 end as entradas_mes,
                 case when t.mes_visivel then coalesce((
                     select sum(s.valor)
                     from public.saidas s
-                    join contas_ativas c on c.id = s.id_conta
                     where s.id_usuario = @userId
                       and s.data_movimentacao between t.inicio_mes and t.fim_mes
                 ), 0) else 0 end as saidas_mes,
@@ -1125,14 +1085,12 @@ public sealed partial class JsnFinancesDb
                     coalesce((
                         select sum(e.valor)
                         from public.entradas e
-                        join contas_ativas c on c.id = e.id_conta
                         where e.id_usuario = @userId
                           and e.data_movimentacao between t.inicio_mes and t.fim_mes
                     ), 0)
                     - coalesce((
                         select sum(s.valor)
                         from public.saidas s
-                        join contas_ativas c on c.id = s.id_conta
                         where s.id_usuario = @userId
                           and s.data_movimentacao between t.inicio_mes and t.fim_mes
                     ), 0)

@@ -1117,6 +1117,72 @@ public sealed partial class JsnFinancesDb
                 reader.GetBoolean(6)));
         }
 
+        if (rows.Count > 0)
+        {
+            var hojeLocal = DateTime.Today;
+            var dataRows = rows.Where(row => row.TemDados).ToList();
+
+            if (dataRows.Count > 0)
+            {
+                var anchorMonth = ano == hojeLocal.Year
+                    ? hojeLocal.Month
+                    : dataRows.Last().Mes;
+
+                var anchorIndex = rows.FindIndex(row => row.Mes == anchorMonth && row.TemDados);
+                if (anchorIndex < 0)
+                {
+                    anchorIndex = rows.FindLastIndex(row => row.TemDados);
+                }
+
+                if (anchorIndex >= 0)
+                {
+                    var normalized = rows.ToArray();
+                    var anchorBalance = normalized[anchorIndex].SaldoTotal;
+
+                    if (ano == hojeLocal.Year && normalized[anchorIndex].Mes == hojeLocal.Month)
+                    {
+                        // Mantém o mês atual exatamente igual ao saldo total do topo da Home.
+                        // Esse saldo vem da soma das contas/carteiras ativas e é a fonte de verdade
+                        // para o saldo atual. Os meses anteriores são reconstruídos pela variação mensal.
+                        var contasSaldo = await ListContasSaldoAsync(userId);
+                        anchorBalance = contasSaldo
+                            .Where(conta => conta.Ativo)
+                            .Sum(conta => conta.SaldoAtual);
+                    }
+
+                    normalized[anchorIndex] = normalized[anchorIndex] with { SaldoTotal = anchorBalance };
+
+                    for (var index = anchorIndex - 1; index >= 0; index--)
+                    {
+                        if (!normalized[index].TemDados || !normalized[index + 1].TemDados)
+                        {
+                            continue;
+                        }
+
+                        normalized[index] = normalized[index] with
+                        {
+                            SaldoTotal = normalized[index + 1].SaldoTotal - normalized[index + 1].VariacaoMes
+                        };
+                    }
+
+                    for (var index = anchorIndex + 1; index < normalized.Length; index++)
+                    {
+                        if (!normalized[index].TemDados || !normalized[index - 1].TemDados)
+                        {
+                            continue;
+                        }
+
+                        normalized[index] = normalized[index] with
+                        {
+                            SaldoTotal = normalized[index - 1].SaldoTotal + normalized[index].VariacaoMes
+                        };
+                    }
+
+                    rows = normalized.ToList();
+                }
+            }
+        }
+
         return rows;
     }
 

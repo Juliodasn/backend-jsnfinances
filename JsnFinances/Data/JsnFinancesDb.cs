@@ -32,6 +32,7 @@ public sealed partial class JsnFinancesDb
             await EnsurePerfilSchemaAsync(connection);
             await EnsurePreferenciasSchemaAsync(connection);
             await EnsureOnboardingSchemaAsync(connection);
+            await EnsureCoreFinanceSchemaAsync(connection);
             await EnsureCreditCardsSchemaAsync(connection);
             await EnsureAdminSchemaAsync(connection);
         }
@@ -42,6 +43,21 @@ public sealed partial class JsnFinancesDb
             unlockCommand.CommandText = "select pg_advisory_unlock(hashtext('jsn_finances_schema_init'))";
             await unlockCommand.ExecuteNonQueryAsync();
         }
+    }
+
+
+    private static async Task EnsureCoreFinanceSchemaAsync(NpgsqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 90;
+        command.CommandText = """
+            alter table if exists public.contas
+                add column if not exists criado_em timestamptz not null default timezone('utc', now());
+
+            alter table if exists public.contas
+                add column if not exists atualizado_em timestamptz not null default timezone('utc', now());
+            """;
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task<IReadOnlyList<MovimentacaoDto>> ListMovimentacoesAsync(
@@ -1009,81 +1025,121 @@ public sealed partial class JsnFinancesDb
                 from generate_series(1, 12) as gs
             ),
             contas_ativas as (
-                select id, saldo_inicial
+                select
+                    id,
+                    saldo_inicial,
+                    coalesce(criado_em::date, date '0001-01-01') as criado_em
                 from public.contas
                 where id_usuario = @userId
                   and coalesce(ativo, true) = true
+            ),
+            totais as (
+                select
+                    m.mes,
+                    m.inicio_mes,
+                    m.fim_mes,
+                    (m.inicio_mes <= @hoje) as mes_visivel,
+                    (
+                        exists(select 1 from contas_ativas c where c.criado_em <= m.fim_mes)
+                        or exists(
+                            select 1
+                            from public.entradas e
+                            join contas_ativas c on c.id = e.id_conta
+                            where e.id_usuario = @userId
+                              and e.data_movimentacao <= m.fim_mes
+                        )
+                        or exists(
+                            select 1
+                            from public.saidas s
+                            join contas_ativas c on c.id = s.id_conta
+                            where s.id_usuario = @userId
+                              and s.data_movimentacao <= m.fim_mes
+                        )
+                        or exists(
+                            select 1
+                            from public.transferencias_contas tr
+                            where tr.id_usuario = @userId
+                              and tr.data_transferencia <= m.fim_mes
+                              and (
+                                  exists(select 1 from contas_ativas c where c.id = tr.id_conta_origem)
+                                  or exists(select 1 from contas_ativas c where c.id = tr.id_conta_destino)
+                              )
+                        )
+                    ) as tem_historico,
+                    (
+                        coalesce((
+                            select sum(c.saldo_inicial)
+                            from contas_ativas c
+                            where c.criado_em <= m.fim_mes
+                        ), 0)
+                        + coalesce((
+                            select sum(e.valor)
+                            from public.entradas e
+                            join contas_ativas c on c.id = e.id_conta
+                            where e.id_usuario = @userId
+                              and e.data_movimentacao <= m.fim_mes
+                        ), 0)
+                        - coalesce((
+                            select sum(s.valor)
+                            from public.saidas s
+                            join contas_ativas c on c.id = s.id_conta
+                            where s.id_usuario = @userId
+                              and s.data_movimentacao <= m.fim_mes
+                        ), 0)
+                        + coalesce((
+                            select sum(tr.valor)
+                            from public.transferencias_contas tr
+                            join contas_ativas c on c.id = tr.id_conta_destino
+                            where tr.id_usuario = @userId
+                              and tr.data_transferencia <= m.fim_mes
+                        ), 0)
+                        - coalesce((
+                            select sum(tr.valor)
+                            from public.transferencias_contas tr
+                            join contas_ativas c on c.id = tr.id_conta_origem
+                            where tr.id_usuario = @userId
+                              and tr.data_transferencia <= m.fim_mes
+                        ), 0)
+                    ) as saldo_total
+                from months m
             )
             select
                 @ano::int as ano,
-                m.mes,
-                (
-                    coalesce((select sum(c.saldo_inicial) from contas_ativas c), 0)
-                    + coalesce((
-                        select sum(e.valor)
-                        from public.entradas e
-                        join contas_ativas c on c.id = e.id_conta
-                        where e.id_usuario = @userId
-                          and e.data_movimentacao <= m.fim_mes
-                    ), 0)
-                    - coalesce((
-                        select sum(s.valor)
-                        from public.saidas s
-                        join contas_ativas c on c.id = s.id_conta
-                        where s.id_usuario = @userId
-                          and s.data_movimentacao <= m.fim_mes
-                    ), 0)
-                    + coalesce((
-                        select sum(t.valor)
-                        from public.transferencias_contas t
-                        join contas_ativas c on c.id = t.id_conta_destino
-                        where t.id_usuario = @userId
-                          and t.data_transferencia <= m.fim_mes
-                    ), 0)
-                    - coalesce((
-                        select sum(t.valor)
-                        from public.transferencias_contas t
-                        join contas_ativas c on c.id = t.id_conta_origem
-                        where t.id_usuario = @userId
-                          and t.data_transferencia <= m.fim_mes
-                    ), 0)
-                ) as saldo_total,
-                coalesce((
+                t.mes,
+                case when t.mes_visivel and t.tem_historico then t.saldo_total else 0 end as saldo_total,
+                case when t.mes_visivel then coalesce((
                     select sum(e.valor)
                     from public.entradas e
                     join contas_ativas c on c.id = e.id_conta
                     where e.id_usuario = @userId
-                      and e.data_movimentacao between m.inicio_mes and m.fim_mes
-                ), 0) as entradas_mes,
-                coalesce((
+                      and e.data_movimentacao between t.inicio_mes and t.fim_mes
+                ), 0) else 0 end as entradas_mes,
+                case when t.mes_visivel then coalesce((
                     select sum(s.valor)
                     from public.saidas s
                     join contas_ativas c on c.id = s.id_conta
                     where s.id_usuario = @userId
-                      and s.data_movimentacao between m.inicio_mes and m.fim_mes
-                ), 0) as saidas_mes,
-                (
+                      and s.data_movimentacao between t.inicio_mes and t.fim_mes
+                ), 0) else 0 end as saidas_mes,
+                case when t.mes_visivel then (
                     coalesce((
                         select sum(e.valor)
                         from public.entradas e
                         join contas_ativas c on c.id = e.id_conta
                         where e.id_usuario = @userId
-                          and e.data_movimentacao between m.inicio_mes and m.fim_mes
+                          and e.data_movimentacao between t.inicio_mes and t.fim_mes
                     ), 0)
                     - coalesce((
                         select sum(s.valor)
                         from public.saidas s
                         join contas_ativas c on c.id = s.id_conta
                         where s.id_usuario = @userId
-                          and s.data_movimentacao between m.inicio_mes and m.fim_mes
+                          and s.data_movimentacao between t.inicio_mes and t.fim_mes
                     ), 0)
-                ) as variacao_mes,
-                (
-                    exists(select 1 from contas_ativas)
-                    and m.inicio_mes <= @hoje
-                ) as tem_dados
-            from months m
-            order by m.mes
+                ) else 0 end as variacao_mes,
+                (t.mes_visivel and t.tem_historico) as tem_dados
+            from totais t
+            order by t.mes
             """;
         Add(command, "userId", userId);
         Add(command, "ano", ano);

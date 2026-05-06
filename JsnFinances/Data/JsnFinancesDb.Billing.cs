@@ -73,7 +73,7 @@ public sealed partial class JsnFinancesDb
                 insert into public.user_subscriptions
                   (id_usuario, status, provider, trial_started_at, trial_ends_at)
                 values
-                  (@userId, 'trialing', 'manual', timezone('utc', now()), timezone('utc', now()) + interval '3 days')
+                  (@userId, 'trialing', 'manual', timezone('utc', now()), timezone('utc', now()) + interval '30 days')
                 on conflict (id_usuario) do nothing
                 """;
             Add(insert, "userId", userId);
@@ -635,12 +635,13 @@ public sealed partial class JsnFinancesDb
 
             insert into public.billing_plans (code, nome, descricao, valor, moeda, frequency, frequency_type, ativo, destaque, ordem)
             values
-                ('mensal', 'Plano Mensal', 'Pagamento avulso via PIX com liberação por 30 dias.', 19.90, 'BRL', 30, 'days', true, false, 1),
-                ('anual', 'Plano Anual', 'Pagamento avulso via PIX com liberação por 365 dias.', 199.90, 'BRL', 365, 'days', true, true, 2)
+                ('mensal', 'Plano Mensal', 'Pagamento avulso via PIX com liberação por 30 dias.', 9.99, 'BRL', 30, 'days', true, false, 1),
+                ('anual', 'Plano Anual', 'Pagamento avulso via PIX com liberação por 365 dias.', 99.99, 'BRL', 365, 'days', true, true, 2)
             on conflict (code)
             do update set
                 nome = excluded.nome,
                 descricao = excluded.descricao,
+                valor = excluded.valor,
                 moeda = excluded.moeda,
                 frequency = excluded.frequency,
                 frequency_type = excluded.frequency_type,

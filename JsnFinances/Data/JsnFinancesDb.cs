@@ -590,6 +590,40 @@ public sealed partial class JsnFinancesDb
         return (Guid)result;
     }
 
+    public async Task UpdateSubcategoriaAsync(Guid userId, Guid id, SubcategoriaRequest request)
+    {
+        if (request.IdCategoria == Guid.Empty) throw new ArgumentException("Selecione a categoria da subcategoria.");
+        if (string.IsNullOrWhiteSpace(request.Nome)) throw new ArgumentException("Informe o nome da subcategoria.");
+
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            update public.subcategorias sc
+               set id_categoria = c.id,
+                   nome = @nome,
+                   descricao = @descricao,
+                   cor = @cor,
+                   icone = @icone,
+                   ativo = @ativo
+              from public.categorias c
+             where sc.id = @id
+               and sc.id_usuario = @userId
+               and c.id = @idCategoria
+               and c.id_usuario = @userId
+            """;
+        Add(command, "id", id, NpgsqlDbType.Uuid);
+        Add(command, "userId", userId);
+        Add(command, "idCategoria", request.IdCategoria, NpgsqlDbType.Uuid);
+        Add(command, "nome", request.Nome.Trim());
+        Add(command, "descricao", NullIfWhiteSpace(request.Descricao));
+        Add(command, "cor", NullIfWhiteSpace(request.Cor));
+        Add(command, "icone", NullIfWhiteSpace(request.Icone));
+        Add(command, "ativo", request.Ativo);
+
+        var affected = await command.ExecuteNonQueryAsync();
+        if (affected == 0) throw new InvalidOperationException("Subcategoria ou categoria principal não encontrada.");
+    }
+
     public async Task<Guid> InsertCategoriaAsync(Guid userId, CategoriaRequest request)
     {
         var tipo = NormalizeTipoCategoria(request.Tipo);

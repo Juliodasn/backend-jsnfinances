@@ -774,3 +774,74 @@ public sealed record CreditCardPaymentRecordRequest(
     [property: JsonPropertyName("idSaidaPagamento")] Guid? IdSaidaPagamento,
     [property: JsonPropertyName("automatico")] bool? Automatico
 );
+
+public sealed record BoletoParcelaDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("id_boleto")] Guid IdBoleto,
+    [property: JsonPropertyName("numero_parcela")] int NumeroParcela,
+    [property: JsonPropertyName("total_parcelas")] int TotalParcelas,
+    [property: JsonPropertyName("valor_previsto")] decimal ValorPrevisto,
+    [property: JsonPropertyName("data_vencimento")] DateOnly DataVencimento,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("data_pagamento")] DateOnly? DataPagamento,
+    [property: JsonPropertyName("valor_pago")] decimal? ValorPago,
+    [property: JsonPropertyName("juros")] decimal Juros,
+    [property: JsonPropertyName("multa")] decimal Multa,
+    [property: JsonPropertyName("desconto")] decimal Desconto,
+    [property: JsonPropertyName("id_conta_pagamento")] Guid? IdContaPagamento,
+    [property: JsonPropertyName("id_saida_gerada")] Guid? IdSaidaGerada,
+    [property: JsonPropertyName("pagamento_automatico")] bool PagamentoAutomatico,
+    [property: JsonPropertyName("observacao_pagamento")] string? ObservacaoPagamento
+);
+
+public sealed record BoletoDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("descricao")] string Descricao,
+    [property: JsonPropertyName("beneficiario")] string? Beneficiario,
+    [property: JsonPropertyName("categoria")] string? Categoria,
+    [property: JsonPropertyName("id_subcategoria")] Guid? IdSubcategoria,
+    [property: JsonPropertyName("subcategoria_nome")] string? SubcategoriaNome,
+    [property: JsonPropertyName("tipo")] string Tipo,
+    [property: JsonPropertyName("valor_original")] decimal ValorOriginal,
+    [property: JsonPropertyName("frequencia")] string Frequencia,
+    [property: JsonPropertyName("quantidade_parcelas")] int QuantidadeParcelas,
+    [property: JsonPropertyName("data_inicio")] DateOnly DataInicio,
+    [property: JsonPropertyName("data_fim")] DateOnly? DataFim,
+    [property: JsonPropertyName("id_conta_padrao")] Guid? IdContaPadrao,
+    [property: JsonPropertyName("conta_padrao_nome")] string? ContaPadraoNome,
+    [property: JsonPropertyName("modo_pagamento")] string ModoPagamento,
+    [property: JsonPropertyName("dias_lembrete")] int DiasLembrete,
+    [property: JsonPropertyName("codigo_barras")] string? CodigoBarras,
+    [property: JsonPropertyName("observacao")] string? Observacao,
+    [property: JsonPropertyName("ativo")] bool Ativo,
+    [property: JsonPropertyName("parcelas")] IReadOnlyList<BoletoParcelaDto> Parcelas
+);
+
+public sealed record BoletoRequest(
+    string Descricao,
+    string? Beneficiario,
+    string? Categoria,
+    [property: JsonPropertyName("id_subcategoria")] Guid? IdSubcategoria,
+    string Tipo,
+    [property: JsonPropertyName("valor_original")] decimal ValorOriginal,
+    string Frequencia,
+    [property: JsonPropertyName("quantidade_parcelas")] int QuantidadeParcelas,
+    [property: JsonPropertyName("data_inicio")] DateOnly DataInicio,
+    [property: JsonPropertyName("data_fim")] DateOnly? DataFim,
+    [property: JsonPropertyName("id_conta_padrao")] Guid? IdContaPadrao,
+    [property: JsonPropertyName("modo_pagamento")] string ModoPagamento,
+    [property: JsonPropertyName("dias_lembrete")] int DiasLembrete,
+    [property: JsonPropertyName("codigo_barras")] string? CodigoBarras,
+    string? Observacao,
+    bool Ativo = true
+);
+
+public sealed record BoletoPagamentoRequest(
+    [property: JsonPropertyName("data_pagamento")] DateOnly DataPagamento,
+    [property: JsonPropertyName("valor_pago")] decimal ValorPago,
+    decimal Juros,
+    decimal Multa,
+    decimal Desconto,
+    [property: JsonPropertyName("id_conta_pagamento")] Guid? IdContaPagamento,
+    string? Observacao
+);

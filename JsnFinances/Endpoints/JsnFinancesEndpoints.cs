@@ -15,6 +15,36 @@ public static class JsnFinancesEndpoints
 
         api.MapGet("/health", () => Results.Ok(new { status = "ok", service = "JsnFinances.Api", date = DateTimeOffset.UtcNow }));
 
+        api.MapGet("/boletos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
+            Results.Ok(await db.ListBoletosAsync(userContext.GetUserId(ctx))));
+
+        api.MapPost("/boletos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, BoletoRequest request) =>
+        {
+            var id = await db.InsertBoletoAsync(userContext.GetUserId(ctx), request);
+            return Results.Created($"/api/boletos/{id}", new { id });
+        });
+
+        api.MapPut("/boletos/{id:guid}", async (Guid id, HttpContext ctx, IUserContext userContext, JsnFinancesDb db, BoletoRequest request) =>
+        {
+            await db.UpdateBoletoAsync(userContext.GetUserId(ctx), id, request);
+            return Results.NoContent();
+        });
+
+        api.MapDelete("/boletos/{id:guid}", async (Guid id, HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
+        {
+            await db.DeleteBoletoAsync(userContext.GetUserId(ctx), id);
+            return Results.NoContent();
+        });
+
+        api.MapPost("/boletos/parcelas/{id:guid}/pagar", async (Guid id, HttpContext ctx, IUserContext userContext, JsnFinancesDb db, BoletoPagamentoRequest request) =>
+        {
+            await db.PayBoletoParcelaAsync(userContext.GetUserId(ctx), id, request);
+            return Results.NoContent();
+        });
+
+        api.MapPost("/boletos/processar-automaticos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
+            Results.Ok(new { processados = await db.ProcessAutomaticBoletosAsync(userContext.GetUserId(ctx), DateOnly.FromDateTime(DateTime.Today)) }));
+
 
         api.MapGet("/perfil", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
             Results.Ok(await db.GetPerfilAsync(userContext.GetUserId(ctx))));
@@ -168,6 +198,12 @@ public static class JsnFinancesEndpoints
         {
             var id = await db.InsertSubcategoriaAsync(userContext.GetUserId(ctx), request);
             return Results.Created($"/api/subcategorias/{id}", new { id });
+        });
+
+        api.MapPut("/subcategorias/{id:guid}", async (Guid id, HttpContext ctx, IUserContext userContext, JsnFinancesDb db, SubcategoriaRequest request) =>
+        {
+            await db.UpdateSubcategoriaAsync(userContext.GetUserId(ctx), id, request);
+            return Results.NoContent();
         });
 
         api.MapPost("/categorias", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, CategoriaRequest request) =>

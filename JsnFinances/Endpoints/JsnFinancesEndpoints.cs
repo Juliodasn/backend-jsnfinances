@@ -206,6 +206,12 @@ public static class JsnFinancesEndpoints
             return Results.NoContent();
         });
 
+        api.MapDelete("/subcategorias/{id:guid}", async (Guid id, HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
+        {
+            await db.DeleteSubcategoriaAsync(userContext.GetUserId(ctx), id);
+            return Results.NoContent();
+        });
+
         api.MapPost("/categorias", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, CategoriaRequest request) =>
         {
             var id = await db.InsertCategoriaAsync(userContext.GetUserId(ctx), request);

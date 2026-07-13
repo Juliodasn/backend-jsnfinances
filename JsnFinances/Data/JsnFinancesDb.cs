@@ -624,6 +624,39 @@ public sealed partial class JsnFinancesDb
         if (affected == 0) throw new InvalidOperationException("Subcategoria ou categoria principal não encontrada.");
     }
 
+    public async Task DeleteSubcategoriaAsync(Guid userId, Guid id)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+
+        foreach (var table in new[] { "entradas", "saidas", "boletos" })
+        {
+            if (!await ColumnExistsAsync(connection, table, "id_subcategoria"))
+            {
+                continue;
+            }
+
+            await using var usageCommand = connection.CreateCommand();
+            usageCommand.CommandText = $"select count(*) from public.{table} where id_usuario = @userId and id_subcategoria = @id";
+            Add(usageCommand, "userId", userId);
+            Add(usageCommand, "id", id, NpgsqlDbType.Uuid);
+            var count = Convert.ToInt32(await usageCommand.ExecuteScalarAsync() ?? 0);
+            if (count > 0)
+            {
+                throw new InvalidOperationException("Não é possível excluir esta subcategoria porque ela está vinculada a lançamentos ou boletos. Edite esses registros antes de excluir.");
+            }
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "delete from public.subcategorias where id = @id and id_usuario = @userId";
+        Add(command, "id", id, NpgsqlDbType.Uuid);
+        Add(command, "userId", userId);
+
+        if (await command.ExecuteNonQueryAsync() == 0)
+        {
+            throw new InvalidOperationException("Subcategoria não encontrada para o usuário atual.");
+        }
+    }
+
     public async Task<Guid> InsertCategoriaAsync(Guid userId, CategoriaRequest request)
     {
         var tipo = NormalizeTipoCategoria(request.Tipo);

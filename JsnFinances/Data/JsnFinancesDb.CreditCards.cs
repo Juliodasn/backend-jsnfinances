@@ -1,3 +1,4 @@
+using System.Text.Json;
 using JsnFinances.Api.Domain;
 using Npgsql;
 using NpgsqlTypes;
@@ -274,17 +275,156 @@ public sealed partial class JsnFinancesDb
 
     public async Task SaveCreditCardsSnapshotAsync(Guid userId, CreditCardsSnapshotRequest request)
     {
+        // O formato anterior executava um DELETE e depois um INSERT por registro.
+        // Como o backend está separado do PostgreSQL, cada ExecuteNonQueryAsync
+        // gerava um round-trip. O tempo crescia junto com o histórico do cartão.
+        // Agora todo o snapshot é persistido em uma única operação set-based.
+        var cardsJson = JsonSerializer.Serialize(request.Cards ?? []);
+        var purchasesJson = JsonSerializer.Serialize(request.Purchases ?? []);
+        var paidInvoicesJson = JsonSerializer.Serialize(request.PaidInvoices ?? []);
+        var recurringRulesJson = JsonSerializer.Serialize(request.RecurringRules ?? []);
+        var paymentRecordsJson = JsonSerializer.Serialize(request.PaymentRecords ?? []);
+
         await using var connection = await _dataSource.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = 90;
+        command.CommandText = """
+            delete from public.credit_card_payment_records where id_usuario = @userId;
+            delete from public.credit_card_paid_invoices where id_usuario = @userId;
+            delete from public.credit_card_recurring_purchases where id_usuario = @userId;
+            delete from public.credit_card_purchases where id_usuario = @userId;
+            delete from public.credit_cards where id_usuario = @userId;
+
+            insert into public.credit_cards
+                (id, id_usuario, nome, bandeira, limite, dia_fechamento, dia_vencimento, cor, portadores,
+                 pagamento_automatico, id_conta_pagamento, conta_pagamento_nome, ativo, criado_em, atualizado_em)
+            select
+                btrim(item ->> 'id'),
+                @userId,
+                btrim(item ->> 'nome'),
+                case
+                    when lower(coalesce(item ->> 'bandeira', '')) = 'visa' then 'Visa'
+                    when lower(coalesce(item ->> 'bandeira', '')) = 'mastercard' then 'Mastercard'
+                    when lower(coalesce(item ->> 'bandeira', '')) = 'elo' then 'Elo'
+                    when lower(coalesce(item ->> 'bandeira', '')) = 'amex' then 'Amex'
+                    when lower(coalesce(item ->> 'bandeira', '')) = 'hipercard' then 'Hipercard'
+                    else 'Outro'
+                end,
+                greatest(coalesce(nullif(item ->> 'limite', '')::numeric, 0), 0),
+                least(31, greatest(1, coalesce(nullif(item ->> 'diaFechamento', '')::int, 1))),
+                least(31, greatest(1, coalesce(nullif(item ->> 'diaVencimento', '')::int, 1))),
+                coalesce(nullif(btrim(item ->> 'cor'), ''), '#4f46e5'),
+                array(select distinct btrim(holder.value) from jsonb_array_elements_text(coalesce(item -> 'portadores', '[]'::jsonb)) as holder(value) where btrim(holder.value) <> ''),
+                coalesce(nullif(item ->> 'pagamentoAutomatico', '')::boolean, true),
+                nullif(item ->> 'idContaPagamento', '')::uuid,
+                nullif(btrim(item ->> 'contaPagamentoNome'), ''),
+                coalesce(nullif(item ->> 'ativo', '')::boolean, true),
+                coalesce(nullif(item ->> 'criadoEm', '')::timestamptz, now()),
+                now()
+            from jsonb_array_elements(@cardsJson) item
+            where nullif(btrim(item ->> 'id'), '') is not null
+              and nullif(btrim(item ->> 'nome'), '') is not null
+            on conflict do nothing;
+
+            insert into public.credit_card_purchases
+                (id, id_usuario, id_cartao, descricao, categoria, data_compra, valor, parcelas,
+                 observacao, portador, criado_em, atualizado_em)
+            select
+                btrim(item ->> 'id'),
+                @userId,
+                btrim(item ->> 'idCartao'),
+                btrim(item ->> 'descricao'),
+                coalesce(nullif(btrim(item ->> 'categoria'), ''), 'Geral'),
+                coalesce(nullif(item ->> 'dataCompra', '')::date, current_date),
+                coalesce(nullif(item ->> 'valor', '')::numeric, 0),
+                least(60, greatest(1, coalesce(nullif(item ->> 'parcelas', '')::int, 1))),
+                nullif(btrim(item ->> 'observacao'), ''),
+                nullif(btrim(item ->> 'portador'), ''),
+                coalesce(nullif(item ->> 'criadoEm', '')::timestamptz, now()),
+                now()
+            from jsonb_array_elements(@purchasesJson) item
+            where nullif(btrim(item ->> 'id'), '') is not null
+              and nullif(btrim(item ->> 'idCartao'), '') is not null
+              and nullif(btrim(item ->> 'descricao'), '') is not null
+              and coalesce(nullif(item ->> 'valor', '')::numeric, 0) > 0
+            on conflict do nothing;
+
+            insert into public.credit_card_paid_invoices
+                (id_usuario, id_cartao, fatura_key, pago_em, criado_em, atualizado_em)
+            select
+                @userId,
+                btrim(item ->> 'idCartao'),
+                btrim(item ->> 'faturaKey'),
+                coalesce(nullif(item ->> 'pagoEm', '')::timestamptz, now()),
+                now(),
+                now()
+            from jsonb_array_elements(@paidInvoicesJson) item
+            where nullif(btrim(item ->> 'idCartao'), '') is not null
+              and nullif(btrim(item ->> 'faturaKey'), '') is not null
+            on conflict do nothing;
+
+            insert into public.credit_card_recurring_purchases
+                (id, id_usuario, id_cartao, descricao, categoria, valor, parcelas, frequencia,
+                 inicio, fim, observacao, portador, ativo, criado_em, atualizado_em)
+            select
+                btrim(item ->> 'id'),
+                @userId,
+                btrim(item ->> 'idCartao'),
+                btrim(item ->> 'descricao'),
+                coalesce(nullif(btrim(item ->> 'categoria'), ''), 'Assinaturas'),
+                coalesce(nullif(item ->> 'valor', '')::numeric, 0),
+                least(60, greatest(1, coalesce(nullif(item ->> 'parcelas', '')::int, 1))),
+                case when lower(coalesce(item ->> 'frequencia', '')) = 'anual' then 'anual' else 'mensal' end,
+                coalesce(nullif(item ->> 'inicio', '')::date, current_date),
+                nullif(item ->> 'fim', '')::date,
+                nullif(btrim(item ->> 'observacao'), ''),
+                nullif(btrim(item ->> 'portador'), ''),
+                coalesce(nullif(item ->> 'ativo', '')::boolean, true),
+                now(),
+                now()
+            from jsonb_array_elements(@recurringRulesJson) item
+            where nullif(btrim(item ->> 'id'), '') is not null
+              and nullif(btrim(item ->> 'idCartao'), '') is not null
+              and nullif(btrim(item ->> 'descricao'), '') is not null
+              and coalesce(nullif(item ->> 'valor', '')::numeric, 0) > 0
+            on conflict do nothing;
+
+            insert into public.credit_card_payment_records
+                (id, id_usuario, id_cartao, fatura_key, valor_pago, pago_em, id_conta,
+                 conta_nome, id_saida_pagamento, automatico, criado_em, atualizado_em)
+            select
+                btrim(item ->> 'id'),
+                @userId,
+                btrim(item ->> 'idCartao'),
+                btrim(item ->> 'faturaKey'),
+                coalesce(nullif(item ->> 'valorPago', '')::numeric, 0),
+                coalesce(nullif(item ->> 'pagoEm', '')::date, current_date),
+                nullif(item ->> 'idConta', '')::uuid,
+                nullif(btrim(item ->> 'contaNome'), ''),
+                nullif(item ->> 'idSaidaPagamento', '')::uuid,
+                coalesce(nullif(item ->> 'automatico', '')::boolean, false),
+                now(),
+                now()
+            from jsonb_array_elements(@paymentRecordsJson) item
+            where nullif(btrim(item ->> 'id'), '') is not null
+              and nullif(btrim(item ->> 'idCartao'), '') is not null
+              and nullif(btrim(item ->> 'faturaKey'), '') is not null
+              and coalesce(nullif(item ->> 'valorPago', '')::numeric, 0) > 0
+            on conflict do nothing;
+            """;
+
+        Add(command, "userId", userId, NpgsqlDbType.Uuid);
+        Add(command, "cardsJson", cardsJson, NpgsqlDbType.Jsonb);
+        Add(command, "purchasesJson", purchasesJson, NpgsqlDbType.Jsonb);
+        Add(command, "paidInvoicesJson", paidInvoicesJson, NpgsqlDbType.Jsonb);
+        Add(command, "recurringRulesJson", recurringRulesJson, NpgsqlDbType.Jsonb);
+        Add(command, "paymentRecordsJson", paymentRecordsJson, NpgsqlDbType.Jsonb);
 
         try
         {
-            await DeleteCreditCardsSnapshotAsync(connection, userId);
-            await InsertCreditCardsAsync(connection, userId, request.Cards ?? []);
-            await InsertCreditCardPurchasesAsync(connection, userId, request.Purchases ?? []);
-            await InsertCreditCardPaidInvoicesAsync(connection, userId, request.PaidInvoices ?? []);
-            await InsertCreditCardRecurringRulesAsync(connection, userId, request.RecurringRules ?? []);
-            await InsertCreditCardPaymentRecordsAsync(connection, userId, request.PaymentRecords ?? []);
+            await command.ExecuteNonQueryAsync();
             await transaction.CommitAsync();
         }
         catch

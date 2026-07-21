@@ -42,6 +42,8 @@ public sealed partial class JsnFinancesDb
                 id_cartao text not null,
                 descricao text not null,
                 categoria text not null default 'Geral',
+                id_subcategoria uuid null,
+                subcategoria_nome text null,
                 data_compra date not null,
                 valor numeric(14,2) not null,
                 parcelas int not null default 1,
@@ -72,6 +74,8 @@ public sealed partial class JsnFinancesDb
                 id_cartao text not null,
                 descricao text not null,
                 categoria text not null default 'Assinaturas',
+                id_subcategoria uuid null,
+                subcategoria_nome text null,
                 valor numeric(14,2) not null,
                 parcelas int not null default 1,
                 frequencia text not null default 'mensal',
@@ -111,6 +115,10 @@ public sealed partial class JsnFinancesDb
             alter table public.credit_cards add column if not exists pagamento_automatico boolean not null default true;
             alter table public.credit_cards add column if not exists id_conta_pagamento uuid null;
             alter table public.credit_cards add column if not exists conta_pagamento_nome text null;
+            alter table public.credit_card_purchases add column if not exists id_subcategoria uuid null;
+            alter table public.credit_card_purchases add column if not exists subcategoria_nome text null;
+            alter table public.credit_card_recurring_purchases add column if not exists id_subcategoria uuid null;
+            alter table public.credit_card_recurring_purchases add column if not exists subcategoria_nome text null;
             alter table public.credit_card_payment_records add column if not exists automatico boolean not null default false;
 
             do $$
@@ -172,7 +180,7 @@ public sealed partial class JsnFinancesDb
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
-                select id, id_cartao, descricao, categoria, data_compra, valor, parcelas, observacao, portador, criado_em
+                select id, id_cartao, descricao, categoria, id_subcategoria, subcategoria_nome, data_compra, valor, parcelas, observacao, portador, criado_em
                 from public.credit_card_purchases
                 where id_usuario = @userId
                 order by data_compra desc, criado_em desc
@@ -186,12 +194,14 @@ public sealed partial class JsnFinancesDb
                     reader.GetString(1),
                     reader.GetString(2),
                     reader.GetString(3),
-                    ToDateString(reader.GetFieldValue<DateOnly>(4)),
-                    reader.GetDecimal(5),
-                    reader.GetInt32(6),
-                    ReadNullableString(reader, 7),
-                    ReadNullableString(reader, 8),
-                    ToIsoString(reader.GetFieldValue<DateTimeOffset>(9))));
+                    reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                    ReadNullableString(reader, 5),
+                    ToDateString(reader.GetFieldValue<DateOnly>(6)),
+                    reader.GetDecimal(7),
+                    reader.GetInt32(8),
+                    ReadNullableString(reader, 9),
+                    ReadNullableString(reader, 10),
+                    ToIsoString(reader.GetFieldValue<DateTimeOffset>(11))));
             }
         }
 
@@ -219,7 +229,7 @@ public sealed partial class JsnFinancesDb
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
-                select id, id_cartao, descricao, categoria, valor, parcelas, frequencia, inicio, fim, observacao, portador, ativo
+                select id, id_cartao, descricao, categoria, id_subcategoria, subcategoria_nome, valor, parcelas, frequencia, inicio, fim, observacao, portador, ativo
                 from public.credit_card_recurring_purchases
                 where id_usuario = @userId
                 order by inicio desc, criado_em desc
@@ -233,14 +243,16 @@ public sealed partial class JsnFinancesDb
                     reader.GetString(1),
                     reader.GetString(2),
                     reader.GetString(3),
-                    reader.GetDecimal(4),
-                    reader.GetInt32(5),
-                    reader.GetString(6) == "anual" ? "anual" : "mensal",
-                    ToDateString(reader.GetFieldValue<DateOnly>(7)),
-                    reader.IsDBNull(8) ? null : ToDateString(reader.GetFieldValue<DateOnly>(8)),
-                    ReadNullableString(reader, 9),
-                    ReadNullableString(reader, 10),
-                    reader.GetBoolean(11)));
+                    reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                    ReadNullableString(reader, 5),
+                    reader.GetDecimal(6),
+                    reader.GetInt32(7),
+                    reader.GetString(8) == "anual" ? "anual" : "mensal",
+                    ToDateString(reader.GetFieldValue<DateOnly>(9)),
+                    reader.IsDBNull(10) ? null : ToDateString(reader.GetFieldValue<DateOnly>(10)),
+                    ReadNullableString(reader, 11),
+                    ReadNullableString(reader, 12),
+                    reader.GetBoolean(13)));
             }
         }
 
@@ -329,7 +341,7 @@ public sealed partial class JsnFinancesDb
             on conflict do nothing;
 
             insert into public.credit_card_purchases
-                (id, id_usuario, id_cartao, descricao, categoria, data_compra, valor, parcelas,
+                (id, id_usuario, id_cartao, descricao, categoria, id_subcategoria, subcategoria_nome, data_compra, valor, parcelas,
                  observacao, portador, criado_em, atualizado_em)
             select
                 btrim(item ->> 'id'),
@@ -337,6 +349,8 @@ public sealed partial class JsnFinancesDb
                 btrim(item ->> 'idCartao'),
                 btrim(item ->> 'descricao'),
                 coalesce(nullif(btrim(item ->> 'categoria'), ''), 'Geral'),
+                nullif(item ->> 'idSubcategoria', '')::uuid,
+                nullif(btrim(item ->> 'subcategoriaNome'), ''),
                 coalesce(nullif(item ->> 'dataCompra', '')::date, current_date),
                 coalesce(nullif(item ->> 'valor', '')::numeric, 0),
                 least(60, greatest(1, coalesce(nullif(item ->> 'parcelas', '')::int, 1))),
@@ -366,7 +380,7 @@ public sealed partial class JsnFinancesDb
             on conflict do nothing;
 
             insert into public.credit_card_recurring_purchases
-                (id, id_usuario, id_cartao, descricao, categoria, valor, parcelas, frequencia,
+                (id, id_usuario, id_cartao, descricao, categoria, id_subcategoria, subcategoria_nome, valor, parcelas, frequencia,
                  inicio, fim, observacao, portador, ativo, criado_em, atualizado_em)
             select
                 btrim(item ->> 'id'),
@@ -374,6 +388,8 @@ public sealed partial class JsnFinancesDb
                 btrim(item ->> 'idCartao'),
                 btrim(item ->> 'descricao'),
                 coalesce(nullif(btrim(item ->> 'categoria'), ''), 'Assinaturas'),
+                nullif(item ->> 'idSubcategoria', '')::uuid,
+                nullif(btrim(item ->> 'subcategoriaNome'), ''),
                 coalesce(nullif(item ->> 'valor', '')::numeric, 0),
                 least(60, greatest(1, coalesce(nullif(item ->> 'parcelas', '')::int, 1))),
                 case when lower(coalesce(item ->> 'frequencia', '')) = 'anual' then 'anual' else 'mensal' end,
@@ -484,9 +500,9 @@ public sealed partial class JsnFinancesDb
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 insert into public.credit_card_purchases
-                    (id, id_usuario, id_cartao, descricao, categoria, data_compra, valor, parcelas, observacao, portador, criado_em, atualizado_em)
+                    (id, id_usuario, id_cartao, descricao, categoria, id_subcategoria, subcategoria_nome, data_compra, valor, parcelas, observacao, portador, criado_em, atualizado_em)
                 values
-                    (@id, @userId, @idCartao, @descricao, @categoria, @dataCompra, @valor, @parcelas, @observacao, @portador, @criadoEm, timezone('utc', now()))
+                    (@id, @userId, @idCartao, @descricao, @categoria, @idSubcategoria, @subcategoriaNome, @dataCompra, @valor, @parcelas, @observacao, @portador, @criadoEm, timezone('utc', now()))
                 on conflict do nothing
                 """;
             Add(command, "id", purchase.Id.Trim(), NpgsqlDbType.Text);
@@ -494,6 +510,8 @@ public sealed partial class JsnFinancesDb
             Add(command, "idCartao", purchase.IdCartao.Trim(), NpgsqlDbType.Text);
             Add(command, "descricao", purchase.Descricao.Trim(), NpgsqlDbType.Text);
             Add(command, "categoria", NullIfWhiteSpace(purchase.Categoria) ?? "Geral", NpgsqlDbType.Text);
+            Add(command, "idSubcategoria", purchase.IdSubcategoria, NpgsqlDbType.Uuid);
+            Add(command, "subcategoriaNome", NullIfWhiteSpace(purchase.SubcategoriaNome), NpgsqlDbType.Text);
             Add(command, "dataCompra", ParseDateOnly(purchase.DataCompra) ?? DateOnly.FromDateTime(DateTime.UtcNow), NpgsqlDbType.Date);
             Add(command, "valor", purchase.Valor, NpgsqlDbType.Numeric);
             Add(command, "parcelas", Math.Clamp(purchase.Parcelas, 1, 60), NpgsqlDbType.Integer);
@@ -531,9 +549,9 @@ public sealed partial class JsnFinancesDb
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 insert into public.credit_card_recurring_purchases
-                    (id, id_usuario, id_cartao, descricao, categoria, valor, parcelas, frequencia, inicio, fim, observacao, portador, ativo, atualizado_em)
+                    (id, id_usuario, id_cartao, descricao, categoria, id_subcategoria, subcategoria_nome, valor, parcelas, frequencia, inicio, fim, observacao, portador, ativo, atualizado_em)
                 values
-                    (@id, @userId, @idCartao, @descricao, @categoria, @valor, @parcelas, @frequencia, @inicio, @fim, @observacao, @portador, @ativo, timezone('utc', now()))
+                    (@id, @userId, @idCartao, @descricao, @categoria, @idSubcategoria, @subcategoriaNome, @valor, @parcelas, @frequencia, @inicio, @fim, @observacao, @portador, @ativo, timezone('utc', now()))
                 on conflict do nothing
                 """;
             Add(command, "id", rule.Id.Trim(), NpgsqlDbType.Text);
@@ -541,6 +559,8 @@ public sealed partial class JsnFinancesDb
             Add(command, "idCartao", rule.IdCartao.Trim(), NpgsqlDbType.Text);
             Add(command, "descricao", rule.Descricao.Trim(), NpgsqlDbType.Text);
             Add(command, "categoria", NullIfWhiteSpace(rule.Categoria) ?? "Assinaturas", NpgsqlDbType.Text);
+            Add(command, "idSubcategoria", rule.IdSubcategoria, NpgsqlDbType.Uuid);
+            Add(command, "subcategoriaNome", NullIfWhiteSpace(rule.SubcategoriaNome), NpgsqlDbType.Text);
             Add(command, "valor", rule.Valor, NpgsqlDbType.Numeric);
             Add(command, "parcelas", Math.Clamp(rule.Parcelas, 1, 60), NpgsqlDbType.Integer);
             Add(command, "frequencia", rule.Frequencia == "anual" ? "anual" : "mensal", NpgsqlDbType.Text);

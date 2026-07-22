@@ -1401,6 +1401,27 @@ public sealed partial class JsnFinancesDb
             Add(command, "newName", newName);
             await command.ExecuteNonQueryAsync();
         }
+
+        // Compras e recorrências do cartão também guardam a categoria pelo nome.
+        // Sem esta atualização, renomear uma categoria fazia o histórico do cartão
+        // deixar de aparecer nos resumos de Categorias, Relatórios e Visão Anual.
+        foreach (var tabela in new[] { "credit_card_purchases", "credit_card_recurring_purchases" })
+        {
+            await using var existsCommand = connection.CreateCommand();
+            existsCommand.Transaction = transaction;
+            existsCommand.CommandText = "select to_regclass(@tableName) is not null";
+            Add(existsCommand, "tableName", $"public.{tabela}");
+            var exists = Convert.ToBoolean(await existsCommand.ExecuteScalarAsync());
+            if (!exists) continue;
+
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = $"update public.{tabela} set categoria = @newName where id_usuario = @userId and categoria = @oldName";
+            Add(command, "userId", userId);
+            Add(command, "oldName", oldName);
+            Add(command, "newName", newName);
+            await command.ExecuteNonQueryAsync();
+        }
     }
 
     private static MovimentacaoDto ReadMovimentacao(NpgsqlDataReader reader)

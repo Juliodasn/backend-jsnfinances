@@ -60,7 +60,8 @@ public sealed record ContaDto(
     [property: JsonPropertyName("tipo")] string Tipo,
     [property: JsonPropertyName("saldo_inicial")] decimal SaldoInicial,
     [property: JsonPropertyName("cor")] string? Cor,
-    [property: JsonPropertyName("ativo")] bool Ativo
+    [property: JsonPropertyName("ativo")] bool Ativo,
+    [property: JsonPropertyName("principal")] bool Principal
 );
 
 public sealed record TransferenciaDto(
@@ -105,7 +106,7 @@ public sealed record SubcategoriaRequest(
 public sealed record MetaRequest(string Titulo, string? Categoria, string? Descricao, decimal ValorObjetivo, decimal ValorGuardado, DateOnly? DataLimite, string? Cor, string? Icone);
 public sealed record GuardarValorMetaRequest(decimal Valor);
 public sealed record OrcamentoRequest(string Categoria, decimal LimiteMensal);
-public sealed record ContaRequest(string Nome, string Tipo, decimal SaldoInicial, string? Cor, bool Ativo = true);
+public sealed record ContaRequest(string Nome, string Tipo, decimal SaldoInicial, string? Cor, bool Ativo = true, bool Principal = false);
 public sealed record TransferenciaRequest(Guid IdContaOrigem, Guid IdContaDestino, decimal Valor, DateOnly DataTransferencia, string? Observacao);
 
 public sealed record OnboardingProfileRequest(
@@ -212,6 +213,7 @@ public sealed record ContaSaldoDto(
     [property: JsonPropertyName("saldo_inicial")] decimal SaldoInicial,
     [property: JsonPropertyName("cor")] string? Cor,
     [property: JsonPropertyName("ativo")] bool Ativo,
+    [property: JsonPropertyName("principal")] bool Principal,
     [property: JsonPropertyName("total_entradas")] decimal TotalEntradas,
     [property: JsonPropertyName("total_saidas")] decimal TotalSaidas,
     [property: JsonPropertyName("total_transferencias_entrada")] decimal TotalTransferenciasEntrada,
@@ -640,7 +642,8 @@ public sealed record CreditCardsSnapshotDto(
     [property: JsonPropertyName("paidInvoices")] IReadOnlyList<CreditCardPaidInvoiceDto> PaidInvoices,
     [property: JsonPropertyName("recurringRules")] IReadOnlyList<CreditCardRecurringPurchaseDto> RecurringRules,
     [property: JsonPropertyName("paymentRecords")] IReadOnlyList<CreditCardPaymentRecordDto> PaymentRecords,
-    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonPropertyName("version")] long Version
 );
 
 public sealed record CreditCardsSnapshotRequest(
@@ -648,7 +651,38 @@ public sealed record CreditCardsSnapshotRequest(
     [property: JsonPropertyName("purchases")] IReadOnlyList<CreditCardPurchaseRequest>? Purchases,
     [property: JsonPropertyName("paidInvoices")] IReadOnlyList<CreditCardPaidInvoiceRequest>? PaidInvoices,
     [property: JsonPropertyName("recurringRules")] IReadOnlyList<CreditCardRecurringPurchaseRequest>? RecurringRules,
-    [property: JsonPropertyName("paymentRecords")] IReadOnlyList<CreditCardPaymentRecordRequest>? PaymentRecords
+    [property: JsonPropertyName("paymentRecords")] IReadOnlyList<CreditCardPaymentRecordRequest>? PaymentRecords,
+    [property: JsonPropertyName("version")] long? Version = null
+);
+
+public sealed record CreditCardsSaveResultDto(
+    [property: JsonPropertyName("version")] long Version,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+);
+
+public sealed record RegisterCreditCardInvoicePaymentRequest(
+    [property: JsonPropertyName("idPagamento")] string IdPagamento,
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("faturaKey")] string FaturaKey,
+    [property: JsonPropertyName("valorPago")] decimal ValorPago,
+    [property: JsonPropertyName("pagoEm")] DateOnly PagoEm,
+    [property: JsonPropertyName("idConta")] Guid IdConta,
+    [property: JsonPropertyName("descricao")] string Descricao,
+    [property: JsonPropertyName("observacao")] string? Observacao = null,
+    [property: JsonPropertyName("version")] long? Version = null
+);
+
+public sealed record CreditCardPaymentRegistrationResultDto(
+    [property: JsonPropertyName("version")] long Version,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonPropertyName("paymentRecord")] CreditCardPaymentRecordDto PaymentRecord
+);
+
+public sealed record UndoCreditCardInvoicePaymentsRequest(
+    [property: JsonPropertyName("idCartao")] string IdCartao,
+    [property: JsonPropertyName("faturaKey")] string FaturaKey,
+    [property: JsonPropertyName("idPagamento")] string? IdPagamento = null,
+    [property: JsonPropertyName("version")] long? Version = null
 );
 
 public sealed record CreditCardDto(
@@ -664,6 +698,7 @@ public sealed record CreditCardDto(
     [property: JsonPropertyName("idContaPagamento")] Guid? IdContaPagamento,
     [property: JsonPropertyName("contaPagamentoNome")] string? ContaPagamentoNome,
     [property: JsonPropertyName("ativo")] bool Ativo,
+    [property: JsonPropertyName("principal")] bool Principal,
     [property: JsonPropertyName("criadoEm")] string CriadoEm
 );
 
@@ -680,7 +715,8 @@ public sealed record CreditCardRequest(
     [property: JsonPropertyName("idContaPagamento")] Guid? IdContaPagamento,
     [property: JsonPropertyName("contaPagamentoNome")] string? ContaPagamentoNome,
     [property: JsonPropertyName("ativo")] bool Ativo,
-    [property: JsonPropertyName("criadoEm")] string? CriadoEm
+    [property: JsonPropertyName("criadoEm")] string? CriadoEm,
+    [property: JsonPropertyName("principal")] bool? Principal = null
 );
 
 public sealed record CreditCardPurchaseDto(
@@ -768,7 +804,8 @@ public sealed record CreditCardPaymentRecordDto(
     [property: JsonPropertyName("idConta")] Guid? IdConta,
     [property: JsonPropertyName("contaNome")] string? ContaNome,
     [property: JsonPropertyName("idSaidaPagamento")] Guid? IdSaidaPagamento,
-    [property: JsonPropertyName("automatico")] bool Automatico
+    [property: JsonPropertyName("automatico")] bool Automatico,
+    [property: JsonPropertyName("legado")] bool Legado
 );
 
 public sealed record CreditCardPaymentRecordRequest(
@@ -780,7 +817,8 @@ public sealed record CreditCardPaymentRecordRequest(
     [property: JsonPropertyName("idConta")] Guid? IdConta,
     [property: JsonPropertyName("contaNome")] string? ContaNome,
     [property: JsonPropertyName("idSaidaPagamento")] Guid? IdSaidaPagamento,
-    [property: JsonPropertyName("automatico")] bool? Automatico
+    [property: JsonPropertyName("automatico")] bool? Automatico,
+    [property: JsonPropertyName("legado")] bool? Legado = null
 );
 
 public sealed record BoletoParcelaDto(

@@ -340,8 +340,54 @@ api.MapGet("/visao-anual", async (int? ano, HttpContext ctx, IUserContext userCo
 
         api.MapPut("/cartoes-credito/snapshot", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, CreditCardsSnapshotRequest request) =>
         {
-            await db.SaveCreditCardsSnapshotAsync(userContext.GetUserId(ctx), request);
-            return Results.NoContent();
+            try
+            {
+                return Results.Ok(await db.SaveCreditCardsSnapshotAsync(userContext.GetUserId(ctx), request));
+            }
+            catch (CreditCardsConcurrencyException ex)
+            {
+                return Results.Conflict(new { message = ex.Message, currentVersion = ex.CurrentVersion });
+            }
+        });
+
+        api.MapPost("/cartoes-credito/faturas/pagamentos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, RegisterCreditCardInvoicePaymentRequest request) =>
+        {
+            try
+            {
+                return Results.Ok(await db.RegisterCreditCardInvoicePaymentAsync(userContext.GetUserId(ctx), request));
+            }
+            catch (CreditCardsConcurrencyException ex)
+            {
+                return Results.Conflict(new { message = ex.Message, currentVersion = ex.CurrentVersion });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
+
+        api.MapPost("/cartoes-credito/faturas/desfazer-pagamentos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, UndoCreditCardInvoicePaymentsRequest request) =>
+        {
+            try
+            {
+                return Results.Ok(await db.UndoCreditCardInvoicePaymentsAsync(userContext.GetUserId(ctx), request));
+            }
+            catch (CreditCardsConcurrencyException ex)
+            {
+                return Results.Conflict(new { message = ex.Message, currentVersion = ex.CurrentVersion });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
         });
     }
 }

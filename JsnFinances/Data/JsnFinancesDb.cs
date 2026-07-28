@@ -56,6 +56,35 @@ public sealed partial class JsnFinancesDb
 
             alter table if exists public.contas
                 add column if not exists atualizado_em timestamptz not null default timezone('utc', now());
+
+            alter table if exists public.contas
+                add column if not exists principal boolean not null default false;
+
+            with contas_ativas_ordenadas as (
+                select
+                    id,
+                    id_usuario,
+                    row_number() over (
+                        partition by id_usuario
+                        order by principal desc, ativo desc, nome asc, criado_em asc, id asc
+                    ) as posicao
+                from public.contas
+                where ativo = true
+            )
+            update public.contas conta
+            set principal = ordenada.posicao = 1
+            from contas_ativas_ordenadas ordenada
+            where conta.id = ordenada.id
+              and conta.id_usuario = ordenada.id_usuario
+              and conta.principal is distinct from (ordenada.posicao = 1);
+
+            update public.contas
+            set principal = false
+            where ativo = false and principal = true;
+
+            create unique index if not exists ux_contas_usuario_principal_ativo
+                on public.contas (id_usuario)
+                where principal = true and ativo = true;
             """;
         await command.ExecuteNonQueryAsync();
     }
@@ -920,10 +949,10 @@ public sealed partial class JsnFinancesDb
         await using var connection = await _dataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            select id, nome, tipo, saldo_inicial, cor, ativo
+            select id, nome, tipo, saldo_inicial, cor, ativo, principal
             from public.contas
             where id_usuario = @userId
-            order by nome asc
+            order by principal desc, nome asc
             """;
         Add(command, "userId", userId);
 
@@ -931,7 +960,7 @@ public sealed partial class JsnFinancesDb
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            rows.Add(new ContaDto(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetDecimal(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetBoolean(5)));
+            rows.Add(new ContaDto(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetDecimal(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetBoolean(5), reader.GetBoolean(6)));
         }
         return rows;
     }
@@ -942,16 +971,54 @@ public sealed partial class JsnFinancesDb
         var contaId = id ?? Guid.NewGuid();
 
         await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        if (request.Principal && request.Ativo)
+        {
+            await using var clearPrincipalCommand = connection.CreateCommand();
+            clearPrincipalCommand.Transaction = transaction;
+            clearPrincipalCommand.CommandText = """
+                update public.contas
+                set principal = false
+                where id_usuario = @userId and id <> @id and principal = true
+                """;
+            Add(clearPrincipalCommand, "id", contaId);
+            Add(clearPrincipalCommand, "userId", userId);
+            await clearPrincipalCommand.ExecuteNonQueryAsync();
+        }
+
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
-            insert into public.contas (id, id_usuario, nome, tipo, saldo_inicial, cor, ativo)
-            values (@id, @userId, @nome, @tipo, @saldo, @cor, @ativo)
+            insert into public.contas (id, id_usuario, nome, tipo, saldo_inicial, cor, ativo, principal)
+            values (
+                @id,
+                @userId,
+                @nome,
+                @tipo,
+                @saldo,
+                @cor,
+                @ativo,
+                case
+                    when @ativo = false then false
+                    when @principal = true then true
+                    else not exists (
+                        select 1
+                        from public.contas
+                        where id_usuario = @userId
+                          and id <> @id
+                          and ativo = true
+                          and principal = true
+                    )
+                end
+            )
             on conflict (id)
             do update set nome = excluded.nome,
                           tipo = excluded.tipo,
                           saldo_inicial = excluded.saldo_inicial,
                           cor = excluded.cor,
-                          ativo = excluded.ativo
+                          ativo = excluded.ativo,
+                          principal = excluded.principal
             """;
         Add(command, "id", contaId);
         Add(command, "userId", userId);
@@ -960,7 +1027,31 @@ public sealed partial class JsnFinancesDb
         Add(command, "saldo", request.SaldoInicial);
         Add(command, "cor", NullIfWhiteSpace(request.Cor));
         Add(command, "ativo", request.Ativo);
+        Add(command, "principal", request.Principal);
         await command.ExecuteNonQueryAsync();
+
+        await using var promotePrincipalCommand = connection.CreateCommand();
+        promotePrincipalCommand.Transaction = transaction;
+        promotePrincipalCommand.CommandText = """
+            update public.contas
+            set principal = true
+            where id = (
+                select id
+                from public.contas
+                where id_usuario = @userId and ativo = true
+                order by nome asc, criado_em asc, id asc
+                limit 1
+            )
+              and not exists (
+                  select 1
+                  from public.contas
+                  where id_usuario = @userId and ativo = true and principal = true
+              )
+            """;
+        Add(promotePrincipalCommand, "userId", userId);
+        await promotePrincipalCommand.ExecuteNonQueryAsync();
+
+        await transaction.CommitAsync();
         return contaId;
     }
 
@@ -1019,6 +1110,7 @@ public sealed partial class JsnFinancesDb
                 c.saldo_inicial,
                 c.cor,
                 c.ativo,
+                c.principal,
                 coalesce(e.total_entradas, 0) as total_entradas,
                 coalesce(s.total_saidas, 0) as total_saidas,
                 coalesce(tin.total_transferencias_entrada, 0) as total_transferencias_entrada,
@@ -1054,7 +1146,7 @@ public sealed partial class JsnFinancesDb
                 group by id_conta_origem, id_usuario
             ) tout on tout.id_conta = c.id and tout.id_usuario = c.id_usuario
             where c.id_usuario = @userId
-            order by c.nome asc
+            order by c.principal desc, c.ativo desc, c.nome asc
             """;
         Add(command, "userId", userId);
 
@@ -1069,11 +1161,12 @@ public sealed partial class JsnFinancesDb
                 reader.GetDecimal(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.GetBoolean(5),
-                reader.GetDecimal(6),
+                reader.GetBoolean(6),
                 reader.GetDecimal(7),
                 reader.GetDecimal(8),
                 reader.GetDecimal(9),
-                reader.GetDecimal(10)));
+                reader.GetDecimal(10),
+                reader.GetDecimal(11)));
         }
 
         return rows;
@@ -1323,6 +1416,29 @@ public sealed partial class JsnFinancesDb
             Add(deleteAccount, "id", id);
             Add(deleteAccount, "userId", userId);
             await deleteAccount.ExecuteNonQueryAsync();
+        }
+
+        await using (var promotePrincipal = connection.CreateCommand())
+        {
+            promotePrincipal.Transaction = transaction;
+            promotePrincipal.CommandText = """
+                update public.contas
+                set principal = true
+                where id = (
+                    select id
+                    from public.contas
+                    where id_usuario = @userId and ativo = true
+                    order by nome asc, criado_em asc, id asc
+                    limit 1
+                )
+                  and not exists (
+                      select 1
+                      from public.contas
+                      where id_usuario = @userId and ativo = true and principal = true
+                  )
+                """;
+            Add(promotePrincipal, "userId", userId);
+            await promotePrincipal.ExecuteNonQueryAsync();
         }
 
         await transaction.CommitAsync();

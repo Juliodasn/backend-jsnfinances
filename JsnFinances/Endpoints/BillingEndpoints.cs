@@ -14,7 +14,7 @@ public static class BillingEndpoints
             Results.Ok(await billing.ListPlansAsync()));
 
         api.MapGet("/status", async (HttpContext ctx, IUserContext userContext, BillingService billing) =>
-            Results.Ok(await billing.GetStatusAsync(userContext.GetUserId(ctx))));
+            Results.Ok(await billing.GetStatusAsync(userContext.GetUserId(ctx), userContext.GetUserEmail(ctx))));
 
         api.MapPost("/pix", async (
             HttpContext ctx,
@@ -39,7 +39,7 @@ public static class BillingEndpoints
 
 
         api.MapPost("/sync", async (HttpContext ctx, IUserContext userContext, BillingService billing) =>
-            Results.Ok(await billing.SyncUserSubscriptionAsync(userContext.GetUserId(ctx))));
+            Results.Ok(await billing.SyncUserSubscriptionAsync(userContext.GetUserId(ctx), userContext.GetUserEmail(ctx))));
 
         api.MapPost("/cancel", async (HttpContext ctx, IUserContext userContext, BillingService billing) =>
         {

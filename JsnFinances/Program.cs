@@ -22,16 +22,27 @@ builder.Services.AddScoped<MercadoPagoWebhookValidator>();
 builder.Services.AddScoped<BillingService>();
 builder.Services.AddScoped<AdminAccessService>();
 
-var connectionString = builder.Configuration.GetConnectionString("SupabasePostgres")
-    ?? throw new InvalidOperationException("ConnectionStrings:SupabasePostgres não configurada.");
+var connectionString = builder.Configuration.GetConnectionString("SupabasePostgres");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:SupabasePostgres não configurada. Defina ConnectionStrings__SupabasePostgres nas variáveis de ambiente.");
+}
 
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins")
     .GetChildren()
-    .Select(x => x.Value)
+    .Select(x => x.Value?.Trim())
     .Where(x => !string.IsNullOrWhiteSpace(x))
-    .Cast<string>()
+    .Select(origin =>
+    {
+        if (string.Equals(origin, "null", StringComparison.OrdinalIgnoreCase)) return "null";
+        return Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+            ? uri.GetLeftPart(UriPartial.Authority)
+            : origin!.TrimEnd('/');
+    })
+    .Distinct(StringComparer.OrdinalIgnoreCase)
     .ToArray();
 builder.Services.AddCors(options =>
 {
@@ -49,9 +60,10 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-var initializeSchemaOnStartup = builder.Configuration.GetValue("Schema:InitializeOnStartup", true);
+var initializeSchemaOnStartup = builder.Configuration.GetValue("Schema:InitializeOnStartup", app.Environment.IsDevelopment());
 if (initializeSchemaOnStartup)
 {
+    app.Logger.LogInformation("Inicialização automática do schema habilitada para o ambiente {Environment}.", app.Environment.EnvironmentName);
     await using var scope = app.Services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<JsnFinancesDb>();
     await db.EnsureApplicationSchemaAsync();

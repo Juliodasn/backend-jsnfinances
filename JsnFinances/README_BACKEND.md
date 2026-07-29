@@ -29,12 +29,13 @@ Backend ASP.NET Core para o JSN Finances, conectado ao Supabase PostgreSQL.
 ## Como configurar
 
 1. No Supabase, copie a connection string PostgreSQL.
-2. Cole em `appsettings.Development.json` no campo `ConnectionStrings:SupabasePostgres`.
+2. Configure `ConnectionStrings__SupabasePostgres` por variável de ambiente ou .NET User Secrets.
 3. No Supabase, copie o JWT Secret em `Project Settings > API > JWT Settings`.
-4. Cole em `appsettings.Development.json` no campo `Supabase:JwtSecret`.
+4. Configure `Supabase__JwtSecret` por variável de ambiente ou .NET User Secrets.
 5. Execute no Supabase o script:
-   `front/src/database/supabase-arquitetura-definitiva.sql`
-6. Rode a API:
+   `Frontend/src/database/supabase-arquitetura-definitiva.sql`.
+6. Em produção, mantenha `Schema__InitializeOnStartup=false` para a API não bloquear o primeiro acesso enquanto verifica o banco.
+7. Rode a API:
 
 ```bash
 dotnet restore
@@ -68,3 +69,22 @@ CODEX/front/src/database/supabase-admin-portal.sql
 ```
 
 Os endpoints admin retornam `403 Forbidden` para qualquer conta fora da lista permitida, mesmo que a pessoa tente acessar a rota pelo DevTools ou chamar a API manualmente.
+
+
+## Render / produção
+
+Use variáveis de ambiente para todos os segredos. Não grave senha do banco, JWT Secret ou Access Token do Mercado Pago nos arquivos `appsettings*.json`.
+
+Variáveis principais:
+
+```text
+ConnectionStrings__SupabasePostgres
+Supabase__JwtSecret
+Billing__MercadoPago__AccessToken
+Billing__MercadoPago__WebhookSecret
+Billing__MercadoPago__RequireWebhookSignature
+Schema__InitializeOnStartup=false
+ASPNETCORE_ENVIRONMENT=Production
+```
+
+Configure `/api/health` como Health Check Path do serviço.

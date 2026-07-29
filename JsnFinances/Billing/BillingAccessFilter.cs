@@ -27,7 +27,7 @@ public sealed class BillingAccessFilter : IEndpointFilter
         var userContext = httpContext.RequestServices.GetRequiredService<IUserContext>();
         var billingService = httpContext.RequestServices.GetRequiredService<BillingService>();
         var userId = userContext.GetUserId(httpContext);
-        var status = await billingService.GetStatusAsync(userId);
+        var status = await billingService.GetStatusAsync(userId, userContext.GetUserEmail(httpContext));
 
         if (status.HasAccess)
         {

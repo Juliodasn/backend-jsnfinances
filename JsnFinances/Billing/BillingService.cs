@@ -1,4 +1,5 @@
 using System.Text.Json;
+using JsnFinances.Api.Admin;
 using JsnFinances.Api.Data;
 using JsnFinances.Api.Domain;
 using Microsoft.Extensions.Caching.Memory;
@@ -11,24 +12,32 @@ public sealed class BillingService
     private readonly MercadoPagoClient _mercadoPago;
     private readonly MercadoPagoWebhookValidator _webhookValidator;
     private readonly IMemoryCache _cache;
+    private readonly AdminAccessService _adminAccess;
 
     public BillingService(
         JsnFinancesDb db,
         MercadoPagoClient mercadoPago,
         MercadoPagoWebhookValidator webhookValidator,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        AdminAccessService adminAccess)
     {
         _db = db;
         _mercadoPago = mercadoPago;
         _webhookValidator = webhookValidator;
         _cache = cache;
+        _adminAccess = adminAccess;
     }
 
     public Task<IReadOnlyList<BillingPlanDto>> ListPlansAsync()
         => _db.ListBillingPlansAsync();
 
-    public async Task<BillingStatusDto> GetStatusAsync(Guid userId, bool forceRefresh = false)
+    public async Task<BillingStatusDto> GetStatusAsync(Guid userId, string? userEmail = null, bool forceRefresh = false)
     {
+        if (_adminAccess.IsConfiguredAdminEmail(userEmail))
+        {
+            return BuildAdminStatus();
+        }
+
         var cacheKey = GetBillingStatusCacheKey(userId);
         if (!forceRefresh && _cache.TryGetValue(cacheKey, out BillingStatusDto? cached) && cached is not null)
         {
@@ -72,10 +81,10 @@ public sealed class BillingService
         return charge;
     }
 
-    public async Task<BillingStatusDto> SyncUserSubscriptionAsync(Guid userId)
+    public async Task<BillingStatusDto> SyncUserSubscriptionAsync(Guid userId, string? userEmail = null)
     {
         _cache.Remove(GetBillingStatusCacheKey(userId));
-        return await GetStatusAsync(userId, forceRefresh: true);
+        return await GetStatusAsync(userId, userEmail, forceRefresh: true);
     }
 
     public async Task CancelUserSubscriptionAsync(Guid userId)
@@ -118,6 +127,20 @@ public sealed class BillingService
             await _db.UpdatePixChargeFromWebhookPaymentAsync(payment);
         }
     }
+
+    private static BillingStatusDto BuildAdminStatus()
+        => new(
+            "active",
+            true,
+            false,
+            null,
+            null,
+            null,
+            0,
+            "admin",
+            null,
+            null,
+            "Acesso administrativo liberado.");
 
     private static string GetBillingStatusCacheKey(Guid userId)
         => $"billing-status:{userId:N}";

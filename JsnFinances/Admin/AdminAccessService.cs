@@ -17,6 +17,13 @@ public sealed class AdminAccessService
 
     public IReadOnlyList<string> AllowedEmails => ReadAllowedEmails();
 
+    public bool IsConfiguredAdminEmail(string? email)
+    {
+        var normalizedEmail = NormalizeEmail(email);
+        return !string.IsNullOrWhiteSpace(normalizedEmail)
+            && AllowedEmails.Contains(normalizedEmail, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<AdminIdentityDto> RequireAdminAsync(HttpContext context, IUserContext userContext)
     {
         var userId = userContext.GetUserId(context);

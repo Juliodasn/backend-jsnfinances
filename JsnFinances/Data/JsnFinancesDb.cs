@@ -19,11 +19,18 @@ public sealed partial class JsnFinancesDb
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
 
+        var schemaLockAcquired = false;
         await using (var lockCommand = connection.CreateCommand())
         {
-            lockCommand.CommandTimeout = 90;
-            lockCommand.CommandText = "select pg_advisory_lock(hashtext('jsn_finances_schema_init'))";
-            await lockCommand.ExecuteNonQueryAsync();
+            lockCommand.CommandTimeout = 15;
+            lockCommand.CommandText = "select pg_try_advisory_lock(hashtext('jsn_finances_schema_init'))";
+            schemaLockAcquired = Convert.ToBoolean(await lockCommand.ExecuteScalarAsync() ?? false);
+        }
+
+        if (!schemaLockAcquired)
+        {
+            Console.WriteLine("Inicialização do schema ignorada: outra instância já está executando o processo.");
+            return;
         }
 
         try

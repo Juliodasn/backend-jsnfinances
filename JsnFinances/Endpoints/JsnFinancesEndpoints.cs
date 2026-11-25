@@ -15,8 +15,8 @@ public static class JsnFinancesEndpoints
 
         api.MapGet("/health", () => Results.Ok(new { status = "ok", service = "JsnFinances.Api", date = DateTimeOffset.UtcNow }));
 
-        api.MapGet("/boletos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
-            Results.Ok(await db.ListBoletosAsync(userContext.GetUserId(ctx))));
+        api.MapGet("/boletos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, DateOnly? inicio, DateOnly? fim) =>
+            Results.Ok(await db.ListBoletosAsync(userContext.GetUserId(ctx), inicio, fim)));
 
         api.MapPost("/boletos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db, BoletoRequest request) =>
         {
@@ -42,8 +42,20 @@ public static class JsnFinancesEndpoints
             return Results.NoContent();
         });
 
+        api.MapPost("/boletos/{id:guid}/ocorrencias/{numero:int}/pagar", async (Guid id, int numero, HttpContext ctx, IUserContext userContext, JsnFinancesDb db, BoletoPagamentoRequest request) =>
+        {
+            await db.PayBoletoParcelaAsync(userContext.GetUserId(ctx), Guid.Empty, request, boletoRef: id, numero: numero);
+            return Results.NoContent();
+        });
+
+        api.MapPost("/boletos/{id:guid}/excluir-ocorrencia", async (Guid id, HttpContext ctx, IUserContext userContext, JsnFinancesDb db, BoletoExclusaoRequest request) =>
+        {
+            await db.DeleteBoletoOccurrenceAsync(userContext.GetUserId(ctx), id, request);
+            return Results.NoContent();
+        });
+
         api.MapPost("/boletos/processar-automaticos", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>
-            Results.Ok(new { processados = await db.ProcessAutomaticBoletosAsync(userContext.GetUserId(ctx), DateOnly.FromDateTime(DateTime.Today)) }));
+            Results.Ok(new { processados = await db.ProcessAutomaticBoletosAsync(userContext.GetUserId(ctx), JsnFinancesDb.BoletoToday()) }));
 
 
         api.MapGet("/perfil", async (HttpContext ctx, IUserContext userContext, JsnFinancesDb db) =>

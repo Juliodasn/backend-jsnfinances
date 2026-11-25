@@ -837,7 +837,9 @@ public sealed record BoletoParcelaDto(
     [property: JsonPropertyName("id_conta_pagamento")] Guid? IdContaPagamento,
     [property: JsonPropertyName("id_saida_gerada")] Guid? IdSaidaGerada,
     [property: JsonPropertyName("pagamento_automatico")] bool PagamentoAutomatico,
-    [property: JsonPropertyName("observacao_pagamento")] string? ObservacaoPagamento
+    [property: JsonPropertyName("observacao_pagamento")] string? ObservacaoPagamento,
+    [property: JsonPropertyName("virtual")] bool Virtual = false,
+    [property: JsonPropertyName("dados")] System.Text.Json.JsonElement? Dados = null
 );
 
 public sealed record BoletoDto(
@@ -879,8 +881,13 @@ public sealed record BoletoRequest(
     [property: JsonPropertyName("dias_lembrete")] int DiasLembrete,
     [property: JsonPropertyName("codigo_barras")] string? CodigoBarras,
     string? Observacao,
-    bool Ativo = true
+    bool Ativo = true,
+    [property: JsonPropertyName("numero_parcela")] int? NumeroParcela = null,
+    [property: JsonPropertyName("escopo")] string? Escopo = null,
+    [property: JsonPropertyName("data_vencimento")] DateOnly? DataVencimento = null
 );
+
+public sealed record BoletoExclusaoRequest([property: JsonPropertyName("numero_parcela")] int NumeroParcela, string Escopo);
 
 public sealed record BoletoPagamentoRequest(
     [property: JsonPropertyName("data_pagamento")] DateOnly DataPagamento,

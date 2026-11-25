@@ -394,7 +394,16 @@ public sealed record AdminDashboardDto(
     [property: JsonPropertyName("trial_to_paid_conversion")] decimal TrialToPaidConversion,
     [property: JsonPropertyName("average_usage_days")] decimal AverageUsageDays,
     [property: JsonPropertyName("last_billing_event_at")] DateTimeOffset? LastBillingEventAt,
-    [property: JsonPropertyName("generated_at")] DateTimeOffset GeneratedAt
+    [property: JsonPropertyName("generated_at")] DateTimeOffset GeneratedAt,
+    [property: JsonPropertyName("recent_sign_ins")] int RecentSignIns = 0,
+    [property: JsonPropertyName("recent_registrations")] int RecentRegistrations = 0,
+    [property: JsonPropertyName("active_paying_users")] int ActivePayingUsers = 0,
+    [property: JsonPropertyName("active_manual_users")] int ActiveManualUsers = 0,
+    [property: JsonPropertyName("expired_accesses")] int ExpiredAccesses = 0,
+    [property: JsonPropertyName("revenue_this_month")] decimal RevenueThisMonth = 0,
+    [property: JsonPropertyName("payments_this_month")] int PaymentsThisMonth = 0,
+    [property: JsonPropertyName("users_without_subscription")] int UsersWithoutSubscription = 0,
+    [property: JsonPropertyName("pending_pix_charges")] int PendingPixCharges = 0
 );
 
 public sealed record AdminUserDto(

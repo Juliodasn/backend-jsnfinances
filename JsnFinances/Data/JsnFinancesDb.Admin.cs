@@ -48,45 +48,68 @@ public sealed partial class JsnFinancesDb
         await using var command = connection.CreateCommand();
         command.CommandText = """
             with users_base as (
-                select id, created_at from auth.users
+                select id, created_at, last_sign_in_at from auth.users
             ),
             subscription_base as (
-                select s.*, p.valor, p.frequency, p.frequency_type
+                select s.*, p.valor, p.frequency, p.frequency_type,
+                       case
+                           when s.status = 'trialing' and (s.trial_ends_at is null or s.trial_ends_at < now()) then 'expired'
+                           when s.status = 'active' and (s.current_period_end is null or s.current_period_end < now()) then 'expired'
+                           else s.status
+                       end as effective_status
                 from public.user_subscriptions s
                 left join public.billing_plans p on p.code = s.plan_code
             ),
             approved_payments as (
                 select * from public.payments
-                where lower(coalesce(status, '')) in ('approved', 'authorized', 'paid', 'accredited')
+                where lower(coalesce(status, '')) in ('approved', 'paid', 'accredited')
+                  and upper(coalesce(currency, 'BRL')) = 'BRL'
+            ),
+            paying_users as (
+                select distinct id_usuario from approved_payments where amount > 0
             ),
             mrr_base as (
                 select coalesce(sum(
                     case
-                        when s.status = 'active' and s.frequency_type = 'months' and coalesce(s.frequency, 0) > 0 then s.valor / s.frequency
-                        when s.status = 'active' and s.frequency_type = 'days' and coalesce(s.frequency, 0) > 0 then s.valor * (30.0 / s.frequency)
+                        when s.effective_status = 'active' and s.frequency_type = 'months' and coalesce(s.frequency, 0) > 0 then s.valor / s.frequency
+                        when s.effective_status = 'active' and s.frequency_type = 'days' and coalesce(s.frequency, 0) > 0 then s.valor * (30.0 / s.frequency)
                         else 0
                     end
                 ), 0)::numeric(14,2) as mrr
                 from subscription_base s
+                join paying_users p on p.id_usuario = s.id_usuario
+                where s.provider = 'mercadopago'
             )
             select
                 count(u.id)::int,
-                count(*) filter (where coalesce(s.status, 'trialing') = 'trialing')::int,
-                count(*) filter (where s.status = 'active')::int,
-                count(*) filter (where s.status = 'pending')::int,
-                count(*) filter (where s.status = 'expired')::int,
-                count(*) filter (where s.status = 'canceled')::int,
+                count(*) filter (where s.effective_status = 'trialing')::int,
+                count(*) filter (where s.effective_status = 'active')::int,
+                count(*) filter (where s.effective_status = 'pending')::int,
+                count(*) filter (where s.effective_status = 'expired' and s.status in ('trialing', 'expired') and s.current_period_end is null)::int,
+                count(*) filter (where s.effective_status = 'canceled')::int,
                 (select count(*)::int from public.payments),
                 (select count(*)::int from approved_payments),
                 coalesce((select sum(amount) from approved_payments), 0)::numeric(14,2),
                 (select mrr from mrr_base),
                 ((select mrr from mrr_base) * 12)::numeric(14,2),
-                case when count(u.id) = 0 then 0 else round((count(*) filter (where s.status = 'active')::numeric / count(u.id)::numeric) * 100, 2) end,
+                case when count(u.id) = 0 then 0 else round((count(*) filter (where s.effective_status = 'active')::numeric / count(u.id)::numeric) * 100, 2) end,
                 coalesce(round(avg(extract(epoch from (now() - u.created_at)) / 86400.0), 1), 0)::numeric(14,1),
                 (select max(processado_em) from public.billing_events),
-                now()
+                now(),
+                count(*) filter (where u.last_sign_in_at >= now() - interval '30 days')::int,
+                count(*) filter (where u.created_at >= now() - interval '30 days')::int,
+                count(*) filter (where s.effective_status = 'active' and s.provider = 'mercadopago' and payer.id_usuario is not null)::int,
+                count(*) filter (where s.effective_status = 'active' and s.provider = 'manual')::int,
+                count(*) filter (where s.effective_status = 'expired')::int,
+                coalesce((select sum(amount) from approved_payments where date_trunc('month', paid_at at time zone 'America/Sao_Paulo') = date_trunc('month', now() at time zone 'America/Sao_Paulo') and paid_at <= now()), 0)::numeric(14,2),
+                (select count(*)::int from approved_payments where date_trunc('month', paid_at at time zone 'America/Sao_Paulo') = date_trunc('month', now() at time zone 'America/Sao_Paulo') and paid_at <= now()),
+                count(*) filter (where s.id_usuario is null)::int,
+                (select count(*)::int from public.billing_pix_charges c
+                 where c.payment_status = 'pending' and (c.expires_at is null or c.expires_at >= now())
+                   and not exists (select 1 from public.payments p where p.provider_payment_id = c.mercado_pago_payment_id))
             from users_base u
             left join subscription_base s on s.id_usuario = u.id
+            left join paying_users payer on payer.id_usuario = u.id
             """;
 
         await using var reader = await command.ExecuteReaderAsync();
@@ -98,7 +121,9 @@ public sealed partial class JsnFinancesDb
         return new AdminDashboardDto(
             reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetInt32(4), reader.GetInt32(5),
             reader.GetInt32(6), reader.GetInt32(7), reader.GetDecimal(8), reader.GetDecimal(9), reader.GetDecimal(10), reader.GetDecimal(11), reader.GetDecimal(12),
-            ReadNullableDateTimeOffset(reader, 13), reader.GetFieldValue<DateTimeOffset>(14));
+            ReadNullableDateTimeOffset(reader, 13), reader.GetFieldValue<DateTimeOffset>(14),
+            reader.GetInt32(15), reader.GetInt32(16), reader.GetInt32(17), reader.GetInt32(18), reader.GetInt32(19),
+            reader.GetDecimal(20), reader.GetInt32(21), reader.GetInt32(22), reader.GetInt32(23));
     }
 
     public async Task<PagedResultDto<AdminUserDto>> ListAdminUsersAsync(string? search, string? status, int page, int pageSize)
@@ -130,7 +155,7 @@ public sealed partial class JsnFinancesDb
                        coalesce(p.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name') as nome,
                        u.email, u.created_at, u.last_sign_in_at,
                        (u.email_confirmed_at is not null) as email_confirmed,
-                       coalesce(s.status, 'sem_assinatura') as subscription_status,
+                       case when s.status = 'trialing' and (s.trial_ends_at is null or s.trial_ends_at < now()) then 'expired' when s.status = 'active' and (s.current_period_end is null or s.current_period_end < now()) then 'expired' else coalesce(s.status, 'sem_assinatura') end as subscription_status,
                        s.plan_code, s.trial_started_at, s.trial_ends_at, s.current_period_end,
                        usage.last_activity_at,
                        greatest(0, floor(extract(epoch from (now() - u.created_at)) / 86400.0))::int as days_using,
@@ -143,7 +168,7 @@ public sealed partial class JsnFinancesDb
                 left join public.user_subscriptions s on s.id_usuario = u.id
                 left join usage_base usage on usage.id_usuario = u.id
                 where (@search is null or u.email ilike '%' || @search || '%' or coalesce(p.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name', '') ilike '%' || @search || '%')
-                  and (@status is null or coalesce(s.status, 'sem_assinatura') = @status)
+                  and (@status is null or (case when s.status = 'trialing' and (s.trial_ends_at is null or s.trial_ends_at < now()) then 'expired' when s.status = 'active' and (s.current_period_end is null or s.current_period_end < now()) then 'expired' else coalesce(s.status, 'sem_assinatura') end) = @status)
             )
             select *, count(*) over()::int as total_count
             from users_enriched
@@ -180,7 +205,7 @@ public sealed partial class JsnFinancesDb
         command.CommandText = """
             select s.id, s.id_usuario,
                    coalesce(pf.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name') as nome,
-                   u.email, s.status, s.plan_code, bp.nome, bp.valor, s.provider, s.provider_subscription_id, s.provider_payer_email,
+                   u.email, case when s.status = 'trialing' and (s.trial_ends_at is null or s.trial_ends_at < now()) then 'expired' when s.status = 'active' and (s.current_period_end is null or s.current_period_end < now()) then 'expired' else coalesce(s.status, 'sem_assinatura') end, s.plan_code, bp.nome, bp.valor, s.provider, s.provider_subscription_id, s.provider_payer_email,
                    s.trial_started_at, s.trial_ends_at, s.current_period_end, s.last_synced_at, s.criado_em, s.atualizado_em,
                    count(*) over()::int as total_count
             from public.user_subscriptions s
@@ -188,7 +213,7 @@ public sealed partial class JsnFinancesDb
             left join public.perfis pf on pf.id_usuario = s.id_usuario
             left join public.billing_plans bp on bp.code = s.plan_code
             where (@search is null or u.email ilike '%' || @search || '%' or s.provider_payer_email ilike '%' || @search || '%' or s.provider_subscription_id ilike '%' || @search || '%' or coalesce(pf.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name', '') ilike '%' || @search || '%')
-              and (@status is null or s.status = @status)
+              and (@status is null or (case when s.status = 'trialing' and (s.trial_ends_at is null or s.trial_ends_at < now()) then 'expired' when s.status = 'active' and (s.current_period_end is null or s.current_period_end < now()) then 'expired' else coalesce(s.status, 'sem_assinatura') end) = @status)
             order by s.atualizado_em desc
             limit @limit offset @offset
             """;
@@ -217,15 +242,28 @@ public sealed partial class JsnFinancesDb
         await using var connection = await _dataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
+            with payment_records as (
+                select id, id_usuario, provider, provider_payment_id, provider_subscription_id,
+                       status, amount, currency, paid_at, criado_em
+                from public.payments
+                union all
+                select c.id, c.user_id, 'mercadopago', c.mercado_pago_payment_id, null::text,
+                       case when c.payment_status = 'pending' and c.expires_at < now() then 'expired'
+                            when c.payment_status = 'approved' then 'awaiting_record'
+                            else c.payment_status end,
+                       c.amount, c.currency, c.paid_at, c.created_at
+                from public.billing_pix_charges c
+                where not exists (select 1 from public.payments p where p.provider_payment_id = c.mercado_pago_payment_id)
+            )
             select p.id, p.id_usuario,
                    coalesce(pf.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name') as nome,
                    u.email, p.provider, p.provider_payment_id, p.provider_subscription_id, p.status, p.amount, p.currency, p.paid_at, p.criado_em,
                    count(*) over()::int as total_count
-            from public.payments p
+            from payment_records p
             left join auth.users u on u.id = p.id_usuario
             left join public.perfis pf on pf.id_usuario = p.id_usuario
             where (@search is null or u.email ilike '%' || @search || '%' or p.provider_payment_id ilike '%' || @search || '%' or p.provider_subscription_id ilike '%' || @search || '%' or coalesce(pf.nome_completo, u.raw_user_meta_data ->> 'nome_completo', u.raw_user_meta_data ->> 'name', '') ilike '%' || @search || '%')
-              and (@status is null or p.status = @status)
+              and (@status is null or lower(coalesce(p.status, '')) = @status or (@status = 'approved' and lower(coalesce(p.status, '')) in ('paid', 'accredited')) or (@status = 'pending' and lower(coalesce(p.status, '')) in ('in_process', 'authorized')) or (@status = 'canceled' and lower(coalesce(p.status, '')) = 'cancelled'))
             order by coalesce(p.paid_at, p.criado_em) desc
             limit @limit offset @offset
             """;
